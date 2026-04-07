@@ -5,7 +5,7 @@ It is optimized for touch screens, with pen/eraser tools, brush size control, co
 
 - Production site: https://board.zoni.edu
 - Repository: https://github.com/zoni-group/board
-- Creator: Oscar Perez
+- Creator: Oscar Perez | ZONI
 
 ## App
 
