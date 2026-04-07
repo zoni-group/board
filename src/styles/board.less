@@ -134,13 +134,8 @@ header{
     flex: 0 1 auto;
 }
 
-.dot{
-    width: 9px;
-    height: 9px;
-    border-radius: 999px;
-    background: var(--success-bg);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--success-bg) 22%, transparent);
-    flex: 0 0 auto;
+.brand-logo-link{
+    display: contents;
 }
 
 .brand-logo{
@@ -757,21 +752,25 @@ canvas{
     padding-left: max(4px, env(safe-area-inset-left));
     padding-right: max(4px, env(safe-area-inset-right));
     gap: 6px;
+    position: relative;
   }
 
   .brand{
+    display: flex;
+    position: absolute;
+    top: 8px;
+    right: max(8px, env(safe-area-inset-right));
+    z-index: 2;
+    gap: 4px;
+  }
+
+  .brand .lang-toggle{
     display: none;
   }
 
-  .dot{
-    width: 8px;
-    height: 8px;
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--success-bg) 22%, transparent);
-  }
-
   .brand-logo{
-    width: clamp(128px, 48vw, 200px);
-    max-width: calc(100% - 56px);
+    width: clamp(72px, 18vw, 120px);
+    max-width: none;
   }
 
   .toolbar{
@@ -815,18 +814,6 @@ canvas{
     padding: 2px 2px 8px;
     margin-bottom: 6px;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
-  }
-
-  .board-tools-menu-brand .dot{
-    width: 8px;
-    height: 8px;
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--success-bg) 22%, transparent);
-  }
-
-  .compact-tools-menu-brand .dot{
-    width: 8px;
-    height: 8px;
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--success-bg) 22%, transparent);
   }
 
   .board-tools-menu-logo{
