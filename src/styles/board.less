@@ -762,6 +762,10 @@ canvas{
     right: max(8px, env(safe-area-inset-right));
     z-index: 2;
     gap: 4px;
+    /* fill the space to the right of the action strip, capped at the strip's
+       height (42 px → 297 px wide at the 757:107 logo aspect ratio).
+       296 = strip(276) + header-left-pad(4) + own right-margin(8) + gap(8). */
+    width: min(calc(100% - 296px), 297px);
   }
 
   .brand .lang-toggle{
@@ -769,7 +773,7 @@ canvas{
   }
 
   .brand-logo{
-    width: clamp(72px, 18vw, 120px);
+    width: 100%;
     max-width: none;
   }
 
@@ -900,6 +904,19 @@ canvas{
   }
 }
 
+/* 721-900px: single-row toolbar — shrink logo so swatches stay visible.
+   Logo = min(100vw - 563px, 297px).  Padding-right = logo + 16px gap.
+   563 = strip(276) + header-pads(8) + gap(6) + min-content(247) + logo-gap(16) + left-pad(10) */
+@media (min-width: 721px) and (max-width: 900px){
+  .brand{
+    width: min(calc(100vw - 563px), 297px);
+  }
+
+  .size-label{
+    padding-right: min(calc(100vw - 547px), 313px);
+  }
+}
+
 @media (max-width: 720px){
   .toolbar{
     flex-wrap: wrap;
@@ -926,6 +943,24 @@ canvas{
 
   .size-label .swatches{
     margin-left: 0;
+  }
+}
+
+/* Small phones: swap wide logo for the compact square favicon icon */
+@media (max-width: 500px){
+  .brand{
+    width: auto;
+  }
+
+  .brand-logo{
+    width: 40px;
+    height: 40px;
+  }
+
+  .brand-logo img{
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
   }
 }
 
