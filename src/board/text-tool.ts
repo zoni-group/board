@@ -1,7 +1,21 @@
 import { t, getLang } from '../i18n.ts';
 import { cloneTextObject, isEmptyText } from './model.ts';
 import type { BoardCommand, Point, TextObject } from './model.ts';
-import { containsPoint, drawText, intersectsText, layoutText } from './text-layout.ts';
+import {
+  cachedTextLayout,
+  containsPoint,
+  drawText,
+  intersectsText,
+  layoutText,
+} from './text-layout.ts';
+import {
+  applyViewport,
+  boundsIntersect,
+  screenToWorld,
+  visibleBounds,
+  worldToScreen,
+} from './viewport.ts';
+import type { BoardViewport } from './viewport.ts';
 import { clearTextDraft, loadTextDraft, recoverTextDraft, saveTextDraft } from './text-draft.ts';
 import type { TextDraft } from './text-draft.ts';
 import type { TextEditorSession } from './text-editor.ts';
@@ -11,6 +25,8 @@ interface TextToolOptions {
   layer: HTMLCanvasElement;
   context: CanvasRenderingContext2D;
   getObjects(): TextObject[];
+  getViewport(): BoardViewport;
+  reveal(point: Point): void;
   getHistory(): BoardCommand[];
   persist(): Promise<boolean>;
   commit(command: BoardCommand): Promise<boolean>;
@@ -83,20 +99,43 @@ export function createTextTool(options: TextToolOptions) {
   function selected() {
     return options.getObjects().find((object) => object.id === selectedId);
   }
+  function size() {
+    const rect = canvas.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  }
+  function worldPoint(event: { clientX: number; clientY: number }): Point {
+    const rect = canvas.getBoundingClientRect();
+    return screenToWorld(
+      { x: event.clientX - rect.left, y: event.clientY - rect.top },
+      options.getViewport(),
+      rect
+    );
+  }
   function paint() {
     context.save();
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.clearRect(0, 0, layer.width, layer.height);
     context.restore();
+    const boardView = options.getViewport();
+    applyViewport(context, boardView, size(), Math.max(1, window.devicePixelRatio || 1));
+    const visible = visibleBounds(boardView, size());
     for (const object of options.getObjects()) {
       if (erased.has(object.id) || (draft?.object.id === object.id && (session || loading)))
         continue;
-      drawText(context, drag?.object.id === object.id ? drag.object : object);
+      const displayed = drag?.object.id === object.id ? drag.object : object;
+      const layout = cachedTextLayout(context, displayed);
+      if (boundsIntersect(layout.bounds, visible)) drawText(context, displayed, layout);
     }
     const object = drag?.object ?? selected();
     selection.hidden = !active || !object || Boolean(session || loading) || erased.has(object.id);
     if (object) {
-      const { bounds } = layoutText(context, object);
+      const layout = cachedTextLayout(context, object);
+      selection.hidden ||= !boundsIntersect(layout.bounds, visible);
+      const bounds = {
+        ...worldToScreen(layout.bounds, boardView, size()),
+        width: layout.bounds.width * boardView.zoom,
+        height: layout.bounds.height * boardView.zoom,
+      };
       Object.assign(selection.style, {
         left: `${bounds.x}px`,
         top: `${bounds.y}px`,
@@ -125,6 +164,7 @@ export function createTextTool(options: TextToolOptions) {
         Math.min(
           view.bottom,
           clip.bottom,
+          (frame.querySelector('.board-navigation')?.getBoundingClientRect().top ?? Infinity) - 8,
           (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight)
         ) - 4;
       const desiredY = view.top + (bounds.y < 42 ? bounds.y + bounds.height + 4 : bounds.y - 38);
@@ -154,8 +194,9 @@ export function createTextTool(options: TextToolOptions) {
       '[part~="plugin-container-top"]'
     );
     const toolbarHeight = toolbar?.getBoundingClientRect().height ?? 48;
-    host.style.left = `${Math.max(offsetX + 12, Math.min(rect.left + object.position.x, offsetX + width - Math.min(340, width - 24) - 12))}px`;
-    host.style.top = `${Math.max(offsetY + toolbarHeight + 12, Math.min(rect.top + object.position.y, offsetY + height - Math.min(bounds.height, height - toolbarHeight - 80) - 60))}px`;
+    const anchor = worldToScreen(object.position, options.getViewport(), rect);
+    host.style.left = `${Math.max(offsetX + 12, Math.min(rect.left + anchor.x, offsetX + width - Math.min(340, width - 24) - 12))}px`;
+    host.style.top = `${Math.max(offsetY + toolbarHeight + 12, Math.min(rect.top + anchor.y, offsetY + height - Math.min(bounds.height, height - toolbarHeight - 80) - 60))}px`;
     session.element.style.setProperty(
       '--board-text-max-height',
       `${Math.max(40, height - toolbarHeight - 90)}px`
@@ -300,7 +341,13 @@ export function createTextTool(options: TextToolOptions) {
     return options
       .getObjects()
       .reverse()
-      .find((object) => containsPoint(layoutText(context, object).bounds, point));
+      .find((object) =>
+        containsPoint(
+          cachedTextLayout(context, object).bounds,
+          point,
+          4 / options.getViewport().zoom
+        )
+      );
   }
   function deleteSelected() {
     const object = selected();
@@ -311,13 +358,6 @@ export function createTextTool(options: TextToolOptions) {
     });
     paint();
     canvas.focus({ preventScroll: true });
-  }
-  function clampPosition(point: Point): Point {
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: Math.max(0, Math.min(point.x, rect.width - 24)),
-      y: Math.max(0, Math.min(point.y, rect.height - 24)),
-    };
   }
   function stopDrag(commit: boolean) {
     if (!drag) return;
@@ -355,10 +395,10 @@ export function createTextTool(options: TextToolOptions) {
   });
   move.addEventListener('pointermove', (event) => {
     if (!drag || event.pointerId !== drag.pointer) return;
-    drag.object.position = clampPosition({
-      x: drag.original.position.x + event.clientX - drag.start.x,
-      y: drag.original.position.y + event.clientY - drag.start.y,
-    });
+    drag.object.position = {
+      x: drag.original.position.x + (event.clientX - drag.start.x) / options.getViewport().zoom,
+      y: drag.original.position.y + (event.clientY - drag.start.y) / options.getViewport().zoom,
+    };
     paint();
   });
   move.addEventListener('pointerup', (event) => {
@@ -428,8 +468,7 @@ export function createTextTool(options: TextToolOptions) {
   );
   canvas.addEventListener('dblclick', (event) => {
     if (!active || session || loading) return;
-    const rect = canvas.getBoundingClientRect();
-    const object = hit({ x: event.clientX - rect.left, y: event.clientY - rect.top });
+    const object = hit(worldPoint(event));
     if (object) void open(object, object);
   });
   window.addEventListener('pagehide', flushDraft);
@@ -457,6 +496,7 @@ export function createTextTool(options: TextToolOptions) {
     paint,
     finish,
     isEditing: () => Boolean(session || loading),
+    isDragging: () => Boolean(drag),
     canUndo: () => session?.canUndo() ?? false,
     canRedo: () => session?.canRedo() ?? false,
     undo: () => {
@@ -483,8 +523,7 @@ export function createTextTool(options: TextToolOptions) {
       if (!active) return false;
       if ((event.pointerType === 'mouse' && event.button !== 0) || composing) return true;
       if (!finish()) return true;
-      const rect = canvas.getBoundingClientRect();
-      const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      const point = worldPoint(event);
       const object = hit(point);
       if (object) {
         selectedId = object.id;
@@ -496,7 +535,9 @@ export function createTextTool(options: TextToolOptions) {
     erase(from: Point, to: Point, radius: number): string[] {
       const ids = options
         .getObjects()
-        .filter((object) => intersectsText(layoutText(context, object).bounds, from, to, radius))
+        .filter((object) =>
+          intersectsText(cachedTextLayout(context, object).bounds, from, to, radius)
+        )
         .map((object) => object.id);
       ids.forEach((id) => erased.add(id));
       paint();
@@ -509,6 +550,9 @@ export function createTextTool(options: TextToolOptions) {
     recover() {
       const recovered = recoverTextDraft(options.getObjects(), options.getHistory());
       if (!recovered) return false;
+      const bounds = cachedTextLayout(context, recovered.object).bounds;
+      if (!boundsIntersect(bounds, visibleBounds(options.getViewport(), size())))
+        options.reveal({ x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 });
       active = true;
       canvas.classList.add('text-tool-active');
       void open(recovered.object, recovered.original, recovered.token);
@@ -527,7 +571,7 @@ export function createTextTool(options: TextToolOptions) {
         event.preventDefault();
         const object = selected();
         if (object) void open(object, object);
-        else create({ x: 32, y: 32 });
+        else create(screenToWorld({ x: 32, y: 32 }, options.getViewport(), size()));
         return true;
       }
       const object = selected();
@@ -548,10 +592,10 @@ export function createTextTool(options: TextToolOptions) {
       if (!offset) return false;
       event.preventDefault();
       const next = cloneTextObject(object);
-      next.position = clampPosition({
+      next.position = {
         x: object.position.x + offset.x,
         y: object.position.y + offset.y,
-      });
+      };
       if (next.position.x !== object.position.x || next.position.y !== object.position.y)
         void options.commit({ type: 'text-set', object: next });
       return true;

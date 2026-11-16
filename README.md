@@ -1,7 +1,7 @@
 # ZONI® Board
 
 ZONI® Board is a full-screen local drawing board by [ZONI](https://zoni.edu), deployed at https://board.zoni.edu.
-It is optimized for touch screens, with pen/eraser tools, editable rich text, brush size control, color presets, local autosave, and PNG downloads.
+It is optimized for touch screens, with pen/eraser tools, editable rich text, pan and zoom, brush size control, color presets, local autosave, and PNG downloads.
 
 - Production site: https://board.zoni.edu
 - Repository: https://github.com/zoni-group/board
@@ -105,7 +105,7 @@ Storage reads are treated as unknown until normalized. Version 1 drawings migrat
 version 2 metadata and chunks; the original version 1 records remain intact.
 
 New command types must be handled explicitly in cloning and rendering. Keep drawing points
-in board coordinates (CSS pixels): future zoom should transform input and rendering rather
+in board coordinates (CSS pixels at 100% zoom): zoom transforms input and rendering rather
 than rewrite saved points. TypeScript dependencies are development-only; drawing and storage
 remain local to the browser.
 
@@ -132,10 +132,43 @@ Only one editor is mounted at a time. The editor runtime loads when Text is firs
 committed text uses a separate transparent canvas and a board-owned JSON format. No server,
 external fonts, or collaboration service is required.
 
+## Moving and Zooming
+
+The workspace has no visible edges. Pan to reveal more space; drawing content moves and scales
+while the tools stay at their normal screen size. The navigation strip stays in the lower-right corner:
+
+- **Hand**: drag with a mouse or one finger to move the view. Choose a drawing tool to resume drawing.
+- **− / +**: zoom out or in around the center. Zoom ranges from 1% to 400%.
+- **Percentage**: reset to 100% while keeping the current center.
+- **Fit drawing**: center the whole drawing with padding, up to 100% zoom. On an empty board it restores the initial view.
+
+With a drawing tool selected, one finger draws or taps to place text. Two fingers move the view
+and pinch to zoom. Adding a second finger cancels the unfinished touch stroke or eraser gesture;
+the remaining finger cannot accidentally draw until all fingers lift. Touches are ignored while
+a stylus is drawing.
+
+On desktop, Space+drag or middle-button drag temporarily pans without changing tools. Wheel or
+trackpad scrolling pans; Ctrl/Cmd+wheel or trackpad pinch zooms around the pointer. With the board
+focused, use **+**, **−**, **0**, or **F** for zoom in, zoom out, 100%, or Fit. Arrow keys pan with
+Hand selected (Shift moves farther). These shortcuts do not interrupt typing.
+
+The last position and zoom save locally, separately from drawing history. Navigation does not
+change undo/redo. Resizing preserves the view center; Clear preserves the current view.
+Text blocks move freely beyond the screen edges. Their editor stays at a readable screen size;
+finishing an edit places the text back at the board's zoom level. Starting navigation finishes an
+active text edit, except while composing text with an input method.
+
+**Save PNG** includes the whole drawing, including offscreen content, with a 32-unit margin,
+independently of the current zoom. It renders at one pixel per board unit and reduces resolution
+uniformly above 4096 pixels per side or 8 megapixels; the status message reports this reduction.
+The image keeps the board background, erasing, text, and highlighting. Conservative stroke bounds
+can leave whitespace after pixel erasing. An empty drawing exports a viewport-sized blank image.
+
 ## Persistence Model
 
 - board drawings are stored in IndexedDB when available, with `localStorage` fallback/migration helpers
 - color, language, and related UI preferences use browser storage
+- viewport position and zoom use a separate versioned local preference; drawing schema and coordinates remain unchanged
 - unfinished text drafts use a separate localStorage recovery record; failed board saves retain recovery data
 - IndexedDB saves report success after transaction completion; localStorage quota errors report failure
 

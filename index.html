@@ -371,6 +371,63 @@
         <div class="canvas-frame">
           <canvas id="pad" tabindex="0" aria-label="Drawing canvas"></canvas>
           <canvas id="textLayer" class="board-text-layer" aria-hidden="true"></canvas>
+          <div
+            class="board-navigation"
+            role="toolbar"
+            data-i18n-aria="navigation"
+            aria-label="Board navigation"
+          >
+            <button
+              id="hand"
+              type="button"
+              aria-pressed="false"
+              data-i18n-aria="hand"
+              data-i18n-title="navigationHint"
+              aria-label="Hand"
+              title="Drag to move. Use two fingers to move or zoom."
+            >
+              <span class="btn-icon" aria-hidden="true"></span>
+            </button>
+            <button
+              id="zoomOut"
+              type="button"
+              data-i18n-aria="zoomOut"
+              data-i18n-title="zoomOut"
+              aria-label="Zoom out"
+              title="Zoom out"
+            >
+              −
+            </button>
+            <button
+              id="zoomReset"
+              type="button"
+              data-i18n-title="resetZoom"
+              aria-label="Reset zoom to 100%"
+              title="Reset zoom to 100%"
+            >
+              100%
+            </button>
+            <button
+              id="zoomIn"
+              type="button"
+              data-i18n-aria="zoomIn"
+              data-i18n-title="zoomIn"
+              aria-label="Zoom in"
+              title="Zoom in"
+            >
+              +
+            </button>
+            <button
+              id="fitDrawing"
+              type="button"
+              data-i18n-aria="fitDrawing"
+              data-i18n-title="fitDrawing"
+              aria-label="Fit drawing"
+              title="Fit drawing"
+            >
+              <span class="btn-icon" aria-hidden="true"></span>
+            </button>
+          </div>
           <div class="right-stack board-canvas-meta" aria-label="Status and attribution">
             <span id="status" class="status" data-i18n="ready">Ready</span>
             <span class="attribution" aria-label="Local save notice">

@@ -191,3 +191,14 @@ export const IconWorld = `
 `;
 
 export const IconText = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 6V4h14v2M12 4v16M8 20h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+export const IconHand = `
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M8 12V6a1.5 1.5 0 0 1 3 0v5-7a1.5 1.5 0 0 1 3 0v7-6a1.5 1.5 0 0 1 3 0v7-4a1.5 1.5 0 0 1 3 0v7c0 4-2 6-6 6h-1c-2 0-3-1-4-2l-5-6a1.5 1.5 0 0 1 2-2l2 2Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+`;
+export const IconFit = `
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="8" y="8" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.5"/>
+  </svg>
+`;

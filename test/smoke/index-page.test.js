@@ -208,7 +208,8 @@ describe('index.html smoke', () => {
     canvas.dispatchEvent(lostCapture);
 
     expect(document.body.classList.contains('board-is-drawing')).toBe(false);
-    expect(document.getElementById('undo').disabled).toBe(false);
+    expect(document.getElementById('undo').disabled).toBe(true);
+    expect(localStorage.getItem(BOARD_DRAWING_KEY)).toBeNull();
   });
 
   it('cancels an active stroke before redoing history', async () => {
@@ -255,7 +256,6 @@ describe('index.html smoke', () => {
 
     await flushBoardTasks();
 
-    expect(ctx.fillRect).not.toHaveBeenCalled();
     expect(ctx.drawImage).toHaveBeenCalledTimes(125);
 
     const storedBeforeReload = JSON.parse(localStorage.getItem(BOARD_DRAWING_KEY));
@@ -329,7 +329,8 @@ describe('index.html smoke', () => {
       window.dispatchEvent(new Event('resize'));
       expect(canvas.width).toBe(800);
       expect(canvas.height).toBe(600);
-      expect(canvas.getContext('2d').setTransform).toHaveBeenCalledWith(2, 0, 0, 2, 0, 0);
+      // Keep the same world center when the viewport size changes.
+      expect(canvas.getContext('2d').setTransform).toHaveBeenCalledWith(2, 0, 0, 2, 80, -20);
       expect(JSON.parse(localStorage.getItem(BOARD_DRAWING_KEY))).toEqual(beforeResize);
       document.getElementById('undo').click();
       document.getElementById('redo').click();

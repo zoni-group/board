@@ -1,9 +1,29 @@
 import '../styles/board.less';
 
 import { loadBoardDrawing, saveBoardDrawing } from './storage.ts';
-import { assertNever, cloneCommand, clonePoint } from './model.ts';
-import { resolveTextObjects } from './text-scene.ts';
+import { cloneCommand, clonePoint } from './model.ts';
 import { createTextTool } from './text-tool.ts';
+import { createBoardNavigation } from './navigation.ts';
+import {
+  applyStrokeStyle,
+  createBoardScene,
+  createDrawingCanvas,
+  drawStroke,
+  renderStrokes,
+} from './scene-renderer.ts';
+import type { BoardScene } from './scene-renderer.ts';
+import {
+  applyViewport,
+  fitViewport,
+  initialViewport,
+  loadViewport,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  saveViewport,
+  screenToWorld,
+  zoomAt,
+} from './viewport.ts';
+import type { BoardViewport } from './viewport.ts';
 import type { BoardCommand, BoardSnapshot, Point, StrokeCommand, BoardTool } from './model.ts';
 import type { Language } from '../i18n.ts';
 
@@ -18,6 +38,8 @@ import {
   IconTrash,
   IconUndo,
   IconText,
+  IconHand,
+  IconFit,
 } from '../icons.ts';
 
 interface Rgb {
@@ -72,6 +94,8 @@ applyButtonIcon(requireElement('undo', 'button'), IconUndo);
 applyButtonIcon(requireElement('redo', 'button'), IconRedo);
 applyButtonIcon(requireElement('clear', 'button'), IconTrash);
 applyButtonIcon(requireElement('save', 'button'), IconDownload);
+applyButtonIcon(requireElement('hand', 'button'), IconHand);
+applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
 
 (function () {
   const canvas = requireElement('pad', 'canvas');
@@ -91,6 +115,11 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
   const sizePreview = requireElement('sizePreview', 'button');
   const clearBtn = requireElement('clear', 'button');
   const saveBtn = requireElement('save', 'button');
+  const handBtn = requireElement('hand', 'button');
+  const zoomInBtn = requireElement('zoomIn', 'button');
+  const zoomOutBtn = requireElement('zoomOut', 'button');
+  const zoomResetBtn = requireElement('zoomReset', 'button');
+  const fitBtn = requireElement('fitDrawing', 'button');
 
   // NEW: color UI
   const swatchesEl = requireElement('swatches', 'div');
@@ -192,13 +221,24 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
   let canvasCssWidth = 0;
   let canvasCssHeight = 0;
   let canvasDpr = 1;
+  let viewport: BoardViewport | null = loadViewport();
+  let viewportTimer: number | undefined;
+  let viewportDirty = false;
+  let redrawFrame: number | null = null;
+  let scene: BoardScene | null = null;
+  let sceneLength = -1;
+  let sceneLast: BoardCommand | undefined;
   const commandHistory: BoardCommand[] = [];
   const redoHistory: BoardCommand[] = [];
   const textTool = createTextTool({
     canvas,
     layer: textLayer,
     context: textContext,
-    getObjects: () => resolveTextObjects(commandHistory),
+    getObjects: () => getScene().text,
+    getViewport: () => viewport ?? initialViewport(boardSize()),
+    reveal(center) {
+      changeViewport({ center, zoom: viewport?.zoom ?? 1 });
+    },
     getHistory: () => [...commandHistory, ...redoHistory],
     persist: queueBoardPersistence,
     commit(command) {
@@ -211,6 +251,49 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
     ink: appliedInkFromRaw,
     status: setStatus,
   });
+
+  function boardSize() {
+    return { width: canvasCssWidth, height: canvasCssHeight };
+  }
+  function getScene(): BoardScene {
+    const lastCommand = commandHistory.at(-1);
+    if (!scene || sceneLength !== commandHistory.length || sceneLast !== lastCommand) {
+      scene = createBoardScene(commandHistory, textContext);
+      sceneLength = commandHistory.length;
+      sceneLast = lastCommand;
+    }
+    return scene;
+  }
+  function syncViewportControls() {
+    if (!viewport) return;
+    const percent = Math.round(viewport.zoom * 100);
+    zoomResetBtn.textContent = `${percent}%`;
+    zoomResetBtn.setAttribute('aria-label', `${percent}% · ${t('resetZoom')}`);
+    zoomOutBtn.disabled = viewport.zoom <= MIN_ZOOM;
+    zoomInBtn.disabled = viewport.zoom >= MAX_ZOOM;
+  }
+  function persistViewport() {
+    window.clearTimeout(viewportTimer);
+    if (viewport && viewportDirty) viewportDirty = !saveViewport(viewport);
+  }
+  function queueViewportPersistence() {
+    viewportDirty = true;
+    window.clearTimeout(viewportTimer);
+    viewportTimer = window.setTimeout(persistViewport, 250);
+  }
+  function changeViewport(next: BoardViewport) {
+    viewport = next;
+    syncViewportControls();
+    queueViewportPersistence();
+    if (redrawFrame === null)
+      redrawFrame = window.requestAnimationFrame(() => {
+        redrawFrame = null;
+        redrawCanvas();
+      });
+  }
+  function fitDrawing() {
+    changeViewport(fitViewport(getScene().bounds, boardSize()));
+  }
 
   // Theme-aware colors from CSS variables
   function cssVar(name: string) {
@@ -234,8 +317,18 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
     textBtn.setAttribute('aria-pressed', tool === 'text' ? 'true' : 'false');
     penBtn.setAttribute('aria-pressed', tool === 'pen' ? 'true' : 'false');
     eraseBtn.setAttribute('aria-pressed', tool === 'eraser' ? 'true' : 'false');
+    handBtn.setAttribute('aria-pressed', tool === 'hand' ? 'true' : 'false');
+    navigation.syncCursor();
     if (shouldAnnounce) {
-      setStatus(tool === 'text' ? t('text') : tool === 'pen' ? t('pen') : t('eraser'));
+      setStatus(
+        tool === 'text'
+          ? t('text')
+          : tool === 'pen'
+            ? t('pen')
+            : tool === 'hand'
+              ? t('navigationHint')
+              : t('eraser')
+      );
     }
   }
 
@@ -393,8 +486,8 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
 
   // Make sure ink stays readable on current canvas background.
   // Keeps the user's chosen hue as much as possible, nudging toward white/black only if needed.
-  function ensureInkContrast(rawInkHex: string) {
-    const bg = normalizeHex(currentCanvasBg()) || '#ffffff';
+  function ensureInkContrast(rawInkHex: string, background = currentCanvasBg()) {
+    const bg = normalizeHex(background) || '#ffffff';
     const raw = normalizeHex(rawInkHex) || '#111827';
 
     const TARGET = 4.0; // practical readability for lines
@@ -430,106 +523,56 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
     document.documentElement.style.setProperty('--ink', hex);
   }
 
-  function fillCanvasBackground(targetCtx = ctx) {
-    targetCtx.save();
-    targetCtx.globalCompositeOperation = 'source-over';
-    targetCtx.fillStyle = currentCanvasBg();
-    targetCtx.fillRect(0, 0, canvasCssWidth, canvasCssHeight);
-    targetCtx.restore();
+  let renderBackground = '';
+  const inkCache = new Map<string, string>();
+  function renderedInk(raw: string): string {
+    let ink = inkCache.get(raw);
+    if (!ink) {
+      ink = ensureInkContrast(raw, renderBackground);
+      inkCache.set(raw, ink);
+    }
+    return ink;
   }
-
-  function applyCommandStyle(targetCtx: CanvasRenderingContext2D, command: StrokeCommand) {
-    targetCtx.lineWidth = command.size;
-    targetCtx.lineCap = 'round';
-    targetCtx.lineJoin = 'round';
-
-    switch (command.tool) {
-      case 'eraser':
-        targetCtx.globalCompositeOperation = 'destination-out';
-        targetCtx.strokeStyle = 'rgba(0,0,0,1)';
-        targetCtx.fillStyle = 'rgba(0,0,0,1)';
-        return;
-      case 'pen': {
-        targetCtx.globalCompositeOperation = 'source-over';
-        const appliedInk = ensureInkContrast(command.inkRaw);
-        targetCtx.strokeStyle = appliedInk;
-        targetCtx.fillStyle = appliedInk;
-        return;
-      }
-      default:
-        assertNever(command.tool);
-    }
+  function clearSurface(target: CanvasRenderingContext2D) {
+    target.save();
+    target.setTransform(1, 0, 0, 1, 0, 0);
+    target.clearRect(0, 0, target.canvas.width, target.canvas.height);
+    target.restore();
   }
-
-  function drawCommandToContext(targetCtx: CanvasRenderingContext2D, command: BoardCommand) {
-    switch (command.type) {
-      case 'clear':
-        fillCanvasBackground(targetCtx);
-        return;
-      case 'text-set':
-      case 'text-delete':
-        return;
-      case 'stroke':
-        break;
-      default:
-        assertNever(command);
-    }
-
-    if (command.points.length === 0) return;
-
-    targetCtx.save();
-    applyCommandStyle(targetCtx, command);
-
-    if (command.points.length === 1) {
-      const point = command.points[0];
-      targetCtx.beginPath();
-      targetCtx.arc(point.x, point.y, Math.max(1, command.size / 2), 0, Math.PI * 2);
-      targetCtx.fill();
-      targetCtx.restore();
-      return;
-    }
-
-    targetCtx.beginPath();
-    targetCtx.moveTo(command.points[0].x, command.points[0].y);
-
-    let previousPoint = command.points[0];
-    for (let index = 1; index < command.points.length; index += 1) {
-      const point = command.points[index];
-      const middleX = (previousPoint.x + point.x) / 2;
-      const middleY = (previousPoint.y + point.y) / 2;
-      targetCtx.quadraticCurveTo(previousPoint.x, previousPoint.y, middleX, middleY);
-      previousPoint = point;
-    }
-
-    targetCtx.lineTo(previousPoint.x, previousPoint.y);
-    targetCtx.stroke();
-    targetCtx.restore();
+  function applyCommandStyle(target: CanvasRenderingContext2D, command: StrokeCommand) {
+    applyStrokeStyle(target, command, renderedInk);
   }
-
+  function drawCommandToContext(target: CanvasRenderingContext2D, command: BoardCommand) {
+    if (command.type === 'clear') clearSurface(target);
+    else if (command.type === 'stroke') drawStroke(target, command, renderedInk);
+  }
   function prepareHistorySurface() {
     historyCanvas.width = canvas.width;
     historyCanvas.height = canvas.height;
-    historyCtx.setTransform(canvasDpr, 0, 0, canvasDpr, 0, 0);
-    fillCanvasBackground(historyCtx);
   }
-
   function copyHistorySurfaceToVisible() {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = renderBackground;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(historyCanvas, 0, 0);
     ctx.restore();
   }
-
-  function rebuildHistorySurface() {
-    fillCanvasBackground(historyCtx);
-    for (const command of commandHistory) {
-      drawCommandToContext(historyCtx, command);
-    }
-  }
-
   function redrawCanvas() {
-    rebuildHistorySurface();
+    if (redrawFrame !== null) {
+      window.cancelAnimationFrame(redrawFrame);
+      redrawFrame = null;
+    }
+    if (!viewport) return;
+    const background = currentCanvasBg();
+    if (background !== renderBackground) {
+      renderBackground = background;
+      inkCache.clear();
+    }
+    applyViewport(ctx, viewport, boardSize(), canvasDpr);
+    renderStrokes(historyCtx, getScene().strokes, viewport, boardSize(), canvasDpr, renderedInk);
     copyHistorySurfaceToVisible();
     textTool.paint();
   }
@@ -668,43 +711,43 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
 
   // Replay board coordinates at the current device pixel ratio.
   function resize() {
+    navigation.cancel();
     const rect = canvas.getBoundingClientRect();
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     canvasCssWidth = rect.width;
     canvasCssHeight = rect.height;
     canvasDpr = dpr;
+    if (!viewport) {
+      viewport = initialViewport(boardSize());
+      queueViewportPersistence();
+    }
 
     canvas.width = Math.floor(rect.width * dpr);
     canvas.height = Math.floor(rect.height * dpr);
     textLayer.width = canvas.width;
     textLayer.height = canvas.height;
-    textContext.setTransform(dpr, 0, 0, dpr, 0, 0);
     prepareHistorySurface();
 
     // Work in CSS pixels
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     redrawCanvas();
+    syncViewportControls();
   }
 
   function pos(ev: PointerEvent): Point {
     const r = canvas.getBoundingClientRect();
-    return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+    return screenToWorld({ x: ev.clientX - r.left, y: ev.clientY - r.top }, viewport!, boardSize());
   }
 
   function start(ev: PointerEvent) {
     if (!boardReady) return;
-    if (textTool.pointerDown(ev) || tool === 'text') return;
+    if (tool !== 'pen' && tool !== 'eraser') return;
     if (ev.pointerType === 'mouse' && ev.button !== 0) return;
     if (activePointerId !== null && ev.pointerId !== activePointerId) return;
     clearNativeSelection();
+    if (redrawFrame !== null) redrawCanvas();
     drawing = true;
     activePointerId = ev.pointerId;
     setDrawingSelectionLock(true);
-    try {
-      canvas.setPointerCapture?.(ev.pointerId);
-    } catch {
-      // Some browsers reject capture during transient gesture states.
-    }
     last = pos(ev);
     currentStroke = {
       type: 'stroke',
@@ -748,19 +791,10 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
     if (!drawing) return false;
     if (activePointerId !== null && ev?.pointerId !== undefined && ev.pointerId !== activePointerId)
       return false;
-    const pointerId = activePointerId;
     drawing = false;
     activePointerId = null;
     setDrawingSelectionLock(false);
     last = null;
-
-    if (pointerId !== null && pointerId !== undefined) {
-      try {
-        canvas.releasePointerCapture?.(pointerId);
-      } catch {
-        // Pointer capture may already be released when pointerup/cancel fires.
-      }
-    }
 
     if (currentStroke) {
       if (commit) {
@@ -787,7 +821,7 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
 
     if (commandHistory.length === 0) {
       redoHistory.length = 0;
-      fillCanvasBackground(historyCtx);
+      clearSurface(historyCtx);
       copyHistorySurfaceToVisible();
       textTool.paint();
       syncHistoryButtons();
@@ -892,36 +926,19 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
   }
 
   async function exportCanvasAsPng() {
-    const rect = canvas.getBoundingClientRect();
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-
-    const out = document.createElement('canvas');
-    out.width = canvas.width;
-    out.height = canvas.height;
-    const octx = out.getContext('2d');
-    if (!octx) {
-      throw new Error('Canvas export context is unavailable.');
-    }
-
-    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    octx.fillStyle = currentCanvasBg();
-    octx.fillRect(0, 0, rect.width, rect.height);
-
-    octx.setTransform(1, 0, 0, 1, 0, 0);
-    octx.drawImage(canvas, 0, 0);
-    octx.drawImage(textLayer, 0, 0);
-
+    const exported = createDrawingCanvas(getScene(), boardSize(), currentCanvasBg(), renderedInk);
     return {
-      fileBlob: await canvasToPngBlob(out),
+      fileBlob: await canvasToPngBlob(exported.canvas),
       fileName: 'drawing.png',
-      imageWidth: out.width,
-      imageHeight: out.height,
+      reduced: exported.reduced,
     };
   }
 
   async function downloadDrawingAsPng() {
     if (!textTool.finish()) return;
     if (saveBusy) return;
+    finishStroke({ commit: true });
+    navigation.cancel();
 
     saveBusy = true;
     syncSaveButton();
@@ -938,7 +955,7 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
       downloadLink.click();
       downloadLink.remove();
       URL.revokeObjectURL(objectUrl);
-      setStatus(t('downloadedPng'));
+      setStatus(t(exportedDrawing.reduced ? 'downloadedPngReduced' : 'downloadedPng'));
     } catch {
       setStatus(t('savePngFailed'));
     } finally {
@@ -947,26 +964,27 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
     }
   }
 
-  // Events
-  canvas.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    start(e);
+  const navigation = createBoardNavigation({
+    canvas,
+    ready: () => boardReady,
+    tool: () => tool,
+    view: () => viewport ?? initialViewport(boardSize()),
+    size: boardSize,
+    change: changeViewport,
+    locked: () => drawing || textTool.isDragging(),
+    beforeNavigate: () => textTool.finish(),
+    start,
+    move,
+    end,
+    cancelStroke: () => {
+      finishStroke({ commit: false });
+    },
+    textTap: (event) => {
+      textTool.pointerDown(event);
+    },
+    fit: fitDrawing,
   });
-  canvas.addEventListener('pointermove', (e) => {
-    e.preventDefault();
-    move(e);
-  });
-  canvas.addEventListener('pointerup', (e) => {
-    e.preventDefault();
-    end(e);
-  });
-  canvas.addEventListener('pointercancel', (e) => {
-    e.preventDefault();
-    end(e);
-  });
-  canvas.addEventListener('lostpointercapture', (e) => {
-    end(e);
-  });
+
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   canvas.addEventListener('selectstart', (e) => e.preventDefault());
   canvas.addEventListener('dragstart', (e) => e.preventDefault());
@@ -975,6 +993,7 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
   function selectTool(next: BoardTool) {
     if (!textTool.activate(next === 'text')) return;
     finishStroke({ commit: true });
+    navigation.cancel();
     tool = next;
     setActive();
     canvas.focus({ preventScroll: true });
@@ -982,6 +1001,34 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
   textBtn.addEventListener('click', () => selectTool('text'));
   penBtn.addEventListener('click', () => selectTool('pen'));
   eraseBtn.addEventListener('click', () => selectTool('eraser'));
+  handBtn.addEventListener('click', () => selectTool('hand'));
+  function zoomFromControl(zoom: number) {
+    if (
+      !boardReady ||
+      navigation.isBusy() ||
+      drawing ||
+      textTool.isDragging() ||
+      !textTool.finish() ||
+      !viewport
+    )
+      return;
+    changeViewport(
+      zoomAt(viewport, zoom, { x: canvasCssWidth / 2, y: canvasCssHeight / 2 }, boardSize())
+    );
+  }
+  zoomInBtn.addEventListener('click', () => zoomFromControl((viewport?.zoom ?? 1) * 1.25));
+  zoomOutBtn.addEventListener('click', () => zoomFromControl((viewport?.zoom ?? 1) / 1.25));
+  zoomResetBtn.addEventListener('click', () => zoomFromControl(1));
+  fitBtn.addEventListener('click', () => {
+    if (
+      boardReady &&
+      !navigation.isBusy() &&
+      !drawing &&
+      !textTool.isDragging() &&
+      textTool.finish()
+    )
+      fitDrawing();
+  });
   undoBtn?.addEventListener('click', undo);
   redoBtn?.addEventListener('click', redo);
 
@@ -1004,8 +1051,14 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
   }
 
   window.addEventListener('resize', resize);
+  window.addEventListener('pagehide', persistViewport);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) persistViewport();
+  });
+  document.addEventListener('i18n:change', syncViewportControls);
   document.addEventListener('keydown', (event) => {
     if (event.defaultPrevented || event.isComposing) return;
+    if (navigation.handleKey(event)) return;
     if (textTool.handleKey(event)) return;
     if (isEditableElement(document.activeElement)) return;
     if (!(event.ctrlKey || event.metaKey)) return;
@@ -1037,7 +1090,7 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
   applyInk();
 
   resize();
-  setStatus(t('ready'));
+  setStatus(t('navigationHint'));
   void hydrateBoardDrawing().finally(() => {
     boardReady = true;
     textBtn.disabled = false;

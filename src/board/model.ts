@@ -1,13 +1,13 @@
 export const BOARD_SCHEMA_VERSION = 2;
 
-/** Board coordinates in CSS pixels, independent of device pixel ratio. */
+/** Board units: one CSS pixel at 100% zoom, independent of device pixel ratio. */
 export interface Point {
   x: number;
   y: number;
 }
 
 export type StrokeTool = 'pen' | 'eraser';
-export type BoardTool = StrokeTool | 'text';
+export type BoardTool = StrokeTool | 'text' | 'hand';
 
 export interface TextRun {
   text: string;

@@ -1057,6 +1057,64 @@ html.has-iro .color-popup-card{
 #pad.text-tool-active {
   cursor: text;
 }
+.board-navigation {
+  position: absolute;
+  right: max(10px, env(safe-area-inset-right));
+  bottom: max(10px, env(safe-area-inset-bottom));
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.board-navigation button {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--btn-fg);
+  font-size: 22px;
+  display: grid;
+  place-items: center;
+}
+.board-navigation #zoomReset {
+  width: 64px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.board-navigation button:hover {
+  background: var(--btn-hover-bg);
+}
+.board-navigation button[aria-pressed='true'] {
+  background: var(--btn-active-bg);
+  color: var(--btn-active-fg);
+}
+.board-navigation button:disabled {
+  opacity: 0.4;
+}
+.board-navigation .btn-icon {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+.board-navigation svg {
+  width: 100%;
+  height: 100%;
+}
+.canvas-frame > .board-canvas-meta {
+  bottom: calc(max(10px, env(safe-area-inset-bottom)) + 60px);
+}
+#pad.hand-tool-active {
+  cursor: grab;
+}
+#pad.board-is-panning {
+  cursor: grabbing;
+}
 .text-selection {
   position: absolute;
   border: 1px dashed var(--btn-fg);

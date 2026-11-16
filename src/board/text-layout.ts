@@ -81,8 +81,23 @@ export function layoutText(ctx: CanvasRenderingContext2D, object: TextObject): T
   };
 }
 
-export function drawText(ctx: CanvasRenderingContext2D, object: TextObject): TextLayout {
+const layoutCache = new WeakMap<TextObject, TextLayout>();
+
+/** Committed text is immutable; a drag changes only its position. */
+export function cachedTextLayout(ctx: CanvasRenderingContext2D, object: TextObject): TextLayout {
+  const cached = layoutCache.get(object);
+  if (cached && cached.bounds.x === object.position.x && cached.bounds.y === object.position.y)
+    return cached;
   const layout = layoutText(ctx, object);
+  layoutCache.set(object, layout);
+  return layout;
+}
+
+export function drawText(
+  ctx: CanvasRenderingContext2D,
+  object: TextObject,
+  layout = layoutText(ctx, object)
+): TextLayout {
   ctx.save();
   ctx.globalCompositeOperation = 'source-over';
   ctx.globalAlpha = 1;
@@ -103,12 +118,12 @@ export function drawText(ctx: CanvasRenderingContext2D, object: TextObject): Tex
   return layout;
 }
 
-export function containsPoint(bounds: TextBounds, point: Point): boolean {
+export function containsPoint(bounds: TextBounds, point: Point, padding = 4): boolean {
   return (
-    point.x >= bounds.x - 4 &&
-    point.x <= bounds.x + bounds.width + 4 &&
-    point.y >= bounds.y - 4 &&
-    point.y <= bounds.y + bounds.height + 4
+    point.x >= bounds.x - padding &&
+    point.x <= bounds.x + bounds.width + padding &&
+    point.y >= bounds.y - padding &&
+    point.y <= bounds.y + bounds.height + padding
   );
 }
 

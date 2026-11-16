@@ -31,6 +31,14 @@ const english = {
   close: 'Close',
   clear: 'Clear',
   savePng: 'Save PNG',
+  hand: 'Hand',
+  navigation: 'Board navigation',
+  navigationHint: 'Drag with Hand to move. Use two fingers to move or zoom.',
+  zoomIn: 'Zoom in',
+  zoomOut: 'Zoom out',
+  resetZoom: 'Reset zoom to 100%',
+  fitDrawing: 'Fit drawing',
+  downloadedPngReduced: 'Downloaded PNG · resolution reduced to fit the whole drawing',
 
   // Aria labels
   presetColors: 'Preset colors',
@@ -97,6 +105,14 @@ const translations = {
     close: 'Cerrar',
     clear: 'Limpiar',
     savePng: 'Guardar PNG',
+    hand: 'Mano',
+    navigation: 'Navegación de la pizarra',
+    navigationHint: 'Arrastra con Mano para mover. Usa dos dedos para mover o ampliar.',
+    zoomIn: 'Acercar',
+    zoomOut: 'Alejar',
+    resetZoom: 'Restablecer zoom al 100%',
+    fitDrawing: 'Ver todo el dibujo',
+    downloadedPngReduced: 'PNG descargado · resolución reducida para incluir todo el dibujo',
 
     // Aria labels
     presetColors: 'Colores predefinidos',

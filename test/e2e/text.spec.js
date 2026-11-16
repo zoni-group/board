@@ -589,6 +589,7 @@ test('keeps editing and selection controls reachable for oversized blocks in a s
   await expect(done).toBeInViewport();
   await done.click();
   await expect.poll(async () => (await objects(page)).length).toBe(1);
+  await page.getByRole('button', { name: 'Fit drawing', exact: true }).click();
   const selected = page.locator('#textSelection');
   await selected.focus();
   await selected.press('Home');
