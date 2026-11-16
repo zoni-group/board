@@ -8,6 +8,18 @@ import { loadText, saveText } from './shared/storage.ts';
 export type Language = 'en' | 'es';
 
 const english = {
+  text: 'Text',
+  moveText: 'Move',
+  editText: 'Edit',
+  deleteText: 'Delete',
+  doneText: 'Done',
+  cancelText: 'Cancel',
+  selectedText: 'Selected text. Use arrow keys to move; Enter to edit.',
+  loadingText: 'Loading text editor…',
+  editingText: 'Editing text · Ctrl/⌘+Enter to finish',
+  textSaveFailed: 'Could not save text on this device. Keep this page open to retry.',
+  textLoadFailed: 'Could not open the text editor. Select Text to retry.',
+
   // UI Controls
   pen: 'Pen',
   eraser: 'Eraser',
@@ -62,6 +74,18 @@ function isTranslationKey(key: string): key is TranslationKey {
 const translations = {
   en: english,
   es: {
+    text: 'Texto',
+    moveText: 'Mover',
+    editText: 'Editar',
+    deleteText: 'Eliminar',
+    doneText: 'Listo',
+    cancelText: 'Cancelar',
+    selectedText: 'Texto seleccionado. Usa las flechas para mover; Intro para editar.',
+    loadingText: 'Cargando editor de texto…',
+    editingText: 'Editando texto · Ctrl/⌘+Intro para terminar',
+    textSaveFailed: 'No se pudo guardar el texto. Mantén esta página abierta para reintentar.',
+    textLoadFailed: 'No se pudo abrir el editor. Selecciona Texto para reintentar.',
+
     // UI Controls
     pen: 'Lápiz',
     eraser: 'Borrador',

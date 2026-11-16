@@ -5,7 +5,8 @@ import { BOARD_SCHEMA_VERSION, isFiniteNumber, isRecord, normalizeCommands } fro
 import type { BoardCommand, BoardDrawing, BoardSnapshot } from './model.ts';
 
 export { BOARD_SCHEMA_VERSION } from './model.ts';
-export const BOARD_DRAWING_KEY = 'vatio_board_drawing_v1';
+export const BOARD_DRAWING_KEY = 'vatio_board_drawing_v2';
+export const LEGACY_BOARD_DRAWING_KEY = 'vatio_board_drawing_v1';
 export const BOARD_PERSIST_CHUNK_SIZE = 100;
 
 const BOARD_DB_NAME = 'vatio-board-storage';
@@ -13,7 +14,7 @@ const BOARD_DB_VERSION = 1;
 const BOARD_DB_STORE = 'boardRecords';
 const BOARD_HISTORY_SECTION = 'history';
 const BOARD_REDO_SECTION = 'redo';
-const BOARD_CHUNK_KEY_PREFIX = 'boardChunk:';
+export const BOARD_CHUNK_KEY_PREFIX = 'boardChunk:v2:';
 
 const boardStore = createIndexedJsonKeyValueStore({
   dbName: BOARD_DB_NAME,
@@ -40,8 +41,10 @@ interface StoredBoardDocument extends BoardDrawing, SnapshotReference {
 type HistorySection = 'history' | 'redo';
 
 let boardMigrationPromise: Promise<void> | null = null;
+let legacyMigrationDrawing: BoardDrawing | null = null;
 let pendingSaveDocument: BoardDrawing | null = null;
-let saveLoopPromise: Promise<void> | null = null;
+let saveLoopRunning = false;
+let pendingSaveResolvers: ((ok: boolean) => void)[] = [];
 let generationCounter = 0;
 
 function normalizePositiveInteger(value: unknown, fallback = 0): number {
@@ -107,8 +110,13 @@ function createEmbeddedBoardDrawing(document: BoardDrawing) {
   };
 }
 
-function getBoardChunkKey(generation: string, section: HistorySection, chunkIndex: number): string {
-  return `${BOARD_CHUNK_KEY_PREFIX}${generation}:${section}:${String(chunkIndex)}`;
+function getBoardChunkKey(
+  generation: string,
+  section: HistorySection,
+  chunkIndex: number,
+  prefix = BOARD_CHUNK_KEY_PREFIX
+): string {
+  return `${prefix}${generation}:${section}:${String(chunkIndex)}`;
 }
 
 function createGenerationId(): string {
@@ -203,7 +211,8 @@ async function loadCommandChunks(
   generation: string,
   section: HistorySection,
   chunkCount: number,
-  expectedCount: number
+  expectedCount: number,
+  prefix = BOARD_CHUNK_KEY_PREFIX
 ): Promise<{ ok: boolean; commands: BoardCommand[] }> {
   if (chunkCount === 0) {
     return {
@@ -222,7 +231,9 @@ async function loadCommandChunks(
   const commands: BoardCommand[] = [];
 
   for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
-    const chunk = await boardStore.getValue(getBoardChunkKey(generation, section, chunkIndex));
+    const chunk = await boardStore.getValue(
+      getBoardChunkKey(generation, section, chunkIndex, prefix)
+    );
     if (!Array.isArray(chunk) || chunk.length === 0) {
       return {
         ok: false,
@@ -255,8 +266,7 @@ async function persistBoardDocument(document: BoardSnapshot): Promise<boolean> {
 
   const database = await openBoardDatabase();
   if (!database) {
-    saveJson(BOARD_DRAWING_KEY, createEmbeddedBoardDrawing(normalized));
-    return true;
+    return saveJson(BOARD_DRAWING_KEY, createEmbeddedBoardDrawing(normalized));
   }
 
   const previousDocument = createStoredDocument(await boardStore.getValue(BOARD_DRAWING_KEY));
@@ -323,31 +333,33 @@ async function persistBoardDocument(document: BoardSnapshot): Promise<boolean> {
 }
 
 async function migrateLegacyBoardStorage(): Promise<void> {
-  if (!boardStore.hasSupport()) return;
-
   if (!boardMigrationPromise) {
     boardMigrationPromise = (async () => {
       const database = await openBoardDatabase();
-      if (!database) return;
-
-      const existingValue = await boardStore.getValue(BOARD_DRAWING_KEY);
-      if (existingValue !== undefined) return;
-
-      const legacyValue = loadJson(BOARD_DRAWING_KEY);
-      if (!isRecord(legacyValue)) return;
-
-      const stored = await persistBoardDocument(toBoardDrawing(legacyValue));
-      if (stored) {
-        removeStoredValue(BOARD_DRAWING_KEY);
+      if (database && (await boardStore.getValue(BOARD_DRAWING_KEY)) !== undefined) return;
+      const localV2 = loadJson(BOARD_DRAWING_KEY);
+      if (isRecord(localV2)) {
+        if (database) await persistBoardDocument(toBoardDrawing(localV2));
+        return;
       }
+      const indexedV1 = database ? await boardStore.getValue(LEGACY_BOARD_DRAWING_KEY) : undefined;
+      const indexedDrawing = isRecord(indexedV1)
+        ? await hydrateStoredBoardDrawing(indexedV1, 'boardChunk:')
+        : null;
+      const legacy = indexedDrawing ?? loadJson(LEGACY_BOARD_DRAWING_KEY);
+      if (isRecord(legacy)) {
+        legacyMigrationDrawing = toBoardDrawing(legacy);
+        await persistBoardDocument(legacyMigrationDrawing);
+      }
+      // Version 1 metadata and chunks remain intact for old tabs and rollback.
     })();
   }
-
   return boardMigrationPromise;
 }
 
 async function hydratePersistedSnapshot(
-  snapshot: SnapshotReference
+  snapshot: SnapshotReference,
+  prefix = BOARD_CHUNK_KEY_PREFIX
 ): Promise<BoardSnapshot & { ok: boolean }> {
   if (!hasPersistedSnapshot(snapshot)) {
     return {
@@ -361,7 +373,8 @@ async function hydratePersistedSnapshot(
     snapshot.generation,
     BOARD_HISTORY_SECTION,
     snapshot.chunkCount,
-    snapshot.commandCount
+    snapshot.commandCount,
+    prefix
   );
   if (!commands.ok) {
     return {
@@ -375,7 +388,8 @@ async function hydratePersistedSnapshot(
     snapshot.generation,
     BOARD_REDO_SECTION,
     snapshot.redoChunkCount,
-    snapshot.redoCount
+    snapshot.redoCount,
+    prefix
   );
   if (!redoCommands.ok) {
     return {
@@ -392,14 +406,20 @@ async function hydratePersistedSnapshot(
   };
 }
 
-async function hydrateStoredBoardDrawing(document: unknown): Promise<BoardDrawing | null> {
+async function hydrateStoredBoardDrawing(
+  document: unknown,
+  prefix = BOARD_CHUNK_KEY_PREFIX
+): Promise<BoardDrawing | null> {
   const normalized = createStoredDocument(document);
 
   if (!hasPersistedSnapshot(createSnapshotReference(normalized))) {
     return toBoardDrawing(normalized);
   }
 
-  const currentSnapshot = await hydratePersistedSnapshot(createSnapshotReference(normalized));
+  const currentSnapshot = await hydratePersistedSnapshot(
+    createSnapshotReference(normalized),
+    prefix
+  );
   if (currentSnapshot.ok) {
     return toBoardDrawing({
       ...normalized,
@@ -413,7 +433,7 @@ async function hydrateStoredBoardDrawing(document: unknown): Promise<BoardDrawin
     return null;
   }
 
-  const backupSnapshot = await hydratePersistedSnapshot(backupReference);
+  const backupSnapshot = await hydratePersistedSnapshot(backupReference, prefix);
   if (backupSnapshot.ok) {
     return toBoardDrawing({
       ...normalized,
@@ -437,24 +457,32 @@ export async function loadBoardDrawing(): Promise<BoardDrawing> {
     }
   }
 
-  return toBoardDrawing(loadJson(BOARD_DRAWING_KEY, createEmptyBoardDrawing()));
+  return toBoardDrawing(
+    loadJson(BOARD_DRAWING_KEY, legacyMigrationDrawing ?? createEmptyBoardDrawing())
+  );
 }
 
-export function saveBoardDrawing(document: BoardSnapshot): Promise<void> {
-  // Normalization creates an independent snapshot before the asynchronous save loop.
+export function saveBoardDrawing(document: BoardSnapshot): Promise<boolean> {
   pendingSaveDocument = toBoardDrawing(document);
-  saveLoopPromise = (saveLoopPromise || Promise.resolve()).then(async () => {
-    while (pendingSaveDocument) {
-      const nextDocument = pendingSaveDocument;
-      pendingSaveDocument = null;
-
-      try {
-        await persistBoardDocument(nextDocument);
-      } catch {
-        // Keep the last good snapshot intact when persistence fails.
+  const result = new Promise<boolean>((resolve) => pendingSaveResolvers.push(resolve));
+  if (!saveLoopRunning) {
+    saveLoopRunning = true;
+    void Promise.resolve().then(async () => {
+      while (pendingSaveDocument) {
+        const nextDocument = pendingSaveDocument;
+        const resolvers = pendingSaveResolvers;
+        pendingSaveDocument = null;
+        pendingSaveResolvers = [];
+        let ok = false;
+        try {
+          ok = await persistBoardDocument(nextDocument);
+        } catch {
+          /* Preserve the last good snapshot. */
+        }
+        resolvers.forEach((resolve) => resolve(ok));
       }
-    }
-  });
-
-  return saveLoopPromise;
+      saveLoopRunning = false;
+    });
+  }
+  return result;
 }

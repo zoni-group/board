@@ -16,7 +16,15 @@ const vitestGlobals = {
 
 export default [
   {
-    ignores: ['dist/**', 'coverage/**', 'node_modules/**', 'public/geo/**', '**/*.Zone.Identifier'],
+    ignores: [
+      'dist/**',
+      'coverage/**',
+      'test-results/**',
+      'playwright-report/**',
+      'node_modules/**',
+      'public/geo/**',
+      '**/*.Zone.Identifier',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended.map((config) => ({

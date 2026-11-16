@@ -1046,3 +1046,87 @@ html.has-iro .rgb-fallback{
 html.has-iro .color-popup-card{
   padding-top: 10px;
 }
+
+/* Text is a transparent, independent layer; drawing still targets #pad. */
+.board-text-layer {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  pointer-events: none;
+}
+#pad.text-tool-active {
+  cursor: text;
+}
+.text-selection {
+  position: absolute;
+  border: 1px dashed var(--btn-fg);
+  pointer-events: none;
+  z-index: 3;
+}
+.text-selection-actions,
+.text-editor-actions {
+  display: flex;
+  gap: 4px;
+  width: max-content;
+  padding: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.text-selection-actions {
+  position: absolute;
+  left: 0;
+  pointer-events: auto;
+}
+.text-selection-actions button,
+.text-editor-actions button {
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.text-selection-actions button:first-child {
+  cursor: move;
+  touch-action: none;
+}
+.text-selection[hidden],
+.board-text-editor[hidden] {
+  display: none;
+}
+.board-text-editor {
+  position: fixed;
+  z-index: 50;
+  touch-action: auto;
+}
+.board-text-editor notectl-editor {
+  display: block;
+  width: 100%;
+  --notectl-content-min-height: 38.4px;
+}
+.board-text-editor notectl-editor::part(editor) {
+  position: relative;
+}
+.board-text-editor notectl-editor::part(plugin-container-top) {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: min(340px, calc(100vw - 24px));
+}
+.board-text-editor notectl-editor::part(content) {
+  max-height: var(--board-text-max-height, calc(100dvh - 180px));
+  border: 1px dashed var(--border);
+  background: var(--canvas-bg);
+  color: var(--btn-fg);
+  overflow: auto;
+}
+.text-editor-actions {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+}
+@media (max-width: 430px) {
+  .board-action-strip {
+    --board-action-hit-width: 44px;
+  }
+}

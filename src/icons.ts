@@ -189,3 +189,5 @@ export const IconWorld = `
     <path d="M12 4.25c2.15 2.1 3.25 4.7 3.25 7.75S14.15 17.65 12 19.75c-2.15-2.1-3.25-4.7-3.25-7.75S9.85 6.35 12 4.25Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
   </svg>
 `;
+
+export const IconText = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 6V4h14v2M12 4v16M8 20h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;

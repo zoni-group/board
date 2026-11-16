@@ -2,13 +2,23 @@ import '../styles/board.less';
 
 import { loadBoardDrawing, saveBoardDrawing } from './storage.ts';
 import { assertNever, cloneCommand, clonePoint } from './model.ts';
-import type { BoardCommand, BoardSnapshot, Point, StrokeCommand, StrokeTool } from './model.ts';
+import { resolveTextObjects } from './text-scene.ts';
+import { createTextTool } from './text-tool.ts';
+import type { BoardCommand, BoardSnapshot, Point, StrokeCommand, BoardTool } from './model.ts';
 import type { Language } from '../i18n.ts';
 
 import { applyButtonIcon } from '../shared/tools-menu.ts';
 import iro from '@jaames/iro';
 import { t, applyTranslations, toggleLang, getLang } from '../i18n.ts';
-import { IconDownload, IconEraser, IconPen, IconRedo, IconTrash, IconUndo } from '../icons.ts';
+import {
+  IconDownload,
+  IconEraser,
+  IconPen,
+  IconRedo,
+  IconTrash,
+  IconUndo,
+  IconText,
+} from '../icons.ts';
 
 interface Rgb {
   r: number;
@@ -55,6 +65,7 @@ langToggleButtons.forEach((button) => {
 });
 
 // Toolbar buttons
+applyButtonIcon(requireElement('text', 'button'), IconText);
 applyButtonIcon(requireElement('pen', 'button'), IconPen);
 applyButtonIcon(requireElement('erase', 'button'), IconEraser);
 applyButtonIcon(requireElement('undo', 'button'), IconUndo);
@@ -69,6 +80,9 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
   const historyCtx = requireCanvasContext(historyCanvas);
   const statusEl = requireElement('status', 'span');
 
+  const textLayer = requireElement('textLayer', 'canvas');
+  const textContext = requireCanvasContext(textLayer);
+  const textBtn = requireElement('text', 'button');
   const penBtn = requireElement('pen', 'button');
   const eraseBtn = requireElement('erase', 'button');
   const undoBtn = requireElement('undo', 'button');
@@ -168,17 +182,35 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
     }
   });
 
-  let tool: StrokeTool = 'pen';
+  let tool: BoardTool = 'pen';
   let drawing = false;
   let activePointerId: number | null = null;
   let last: Point | null = null;
   let currentStroke: StrokeCommand | null = null;
   let boardStateRevision = 0;
+  let boardReady = false;
   let canvasCssWidth = 0;
   let canvasCssHeight = 0;
   let canvasDpr = 1;
   const commandHistory: BoardCommand[] = [];
   const redoHistory: BoardCommand[] = [];
+  const textTool = createTextTool({
+    canvas,
+    layer: textLayer,
+    context: textContext,
+    getObjects: () => resolveTextObjects(commandHistory),
+    getHistory: () => [...commandHistory, ...redoHistory],
+    persist: queueBoardPersistence,
+    commit(command) {
+      pushHistoryCommand(command);
+      redrawCanvas();
+      setStatus(t('draftUpdated'));
+      return queueBoardPersistence();
+    },
+    historyChanged: syncHistoryButtons,
+    ink: appliedInkFromRaw,
+    status: setStatus,
+  });
 
   // Theme-aware colors from CSS variables
   function cssVar(name: string) {
@@ -199,10 +231,11 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
 
   function setActive(options: ToolOptions = {}) {
     const shouldAnnounce = options.announce !== false;
+    textBtn.setAttribute('aria-pressed', tool === 'text' ? 'true' : 'false');
     penBtn.setAttribute('aria-pressed', tool === 'pen' ? 'true' : 'false');
     eraseBtn.setAttribute('aria-pressed', tool === 'eraser' ? 'true' : 'false');
     if (shouldAnnounce) {
-      setStatus(tool === 'pen' ? t('pen') : t('eraser'));
+      setStatus(tool === 'text' ? t('text') : tool === 'pen' ? t('pen') : t('eraser'));
     }
   }
 
@@ -211,6 +244,7 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
       if (options.announce) setActive(options);
       return;
     }
+    if (!textTool.activate(false)) return;
     tool = 'pen';
     setActive(options);
   }
@@ -237,8 +271,8 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
   }
 
   function syncHistoryButtons() {
-    if (undoBtn) undoBtn.disabled = commandHistory.length === 0;
-    if (redoBtn) redoBtn.disabled = redoHistory.length === 0;
+    undoBtn.disabled = textTool.isEditing() ? !textTool.canUndo() : commandHistory.length === 0;
+    redoBtn.disabled = textTool.isEditing() ? !textTool.canRedo() : redoHistory.length === 0;
   }
 
   function createBoardDrawingSnapshot(): BoardSnapshot {
@@ -250,7 +284,7 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
 
   function queueBoardPersistence() {
     boardStateRevision += 1;
-    void saveBoardDrawing(createBoardDrawingSnapshot());
+    return saveBoardDrawing(createBoardDrawingSnapshot());
   }
 
   async function hydrateBoardDrawing() {
@@ -432,6 +466,9 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
       case 'clear':
         fillCanvasBackground(targetCtx);
         return;
+      case 'text-set':
+      case 'text-delete':
+        return;
       case 'stroke':
         break;
       default:
@@ -494,6 +531,7 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
   function redrawCanvas() {
     rebuildHistorySurface();
     copyHistorySurfaceToVisible();
+    textTool.paint();
   }
 
   function ensureIroPicker() {
@@ -638,6 +676,9 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
 
     canvas.width = Math.floor(rect.width * dpr);
     canvas.height = Math.floor(rect.height * dpr);
+    textLayer.width = canvas.width;
+    textLayer.height = canvas.height;
+    textContext.setTransform(dpr, 0, 0, dpr, 0, 0);
     prepareHistorySurface();
 
     // Work in CSS pixels
@@ -651,6 +692,8 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
   }
 
   function start(ev: PointerEvent) {
+    if (!boardReady) return;
+    if (textTool.pointerDown(ev) || tool === 'text') return;
     if (ev.pointerType === 'mouse' && ev.button !== 0) return;
     if (activePointerId !== null && ev.pointerId !== activePointerId) return;
     clearNativeSelection();
@@ -670,6 +713,8 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
       inkRaw,
       points: [clonePoint(last)],
     };
+    if (tool === 'eraser')
+      currentStroke.erasedTextIds = textTool.erase(last, last, currentStroke.size / 2);
     applyCommandStyle(ctx, currentStroke);
     ctx.beginPath();
     ctx.moveTo(last.x, last.y);
@@ -680,6 +725,13 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
     if (!drawing || !currentStroke || !last) return;
     const p = pos(ev);
     currentStroke.points.push(clonePoint(p));
+    if (currentStroke.tool === 'eraser')
+      currentStroke.erasedTextIds = [
+        ...new Set([
+          ...(currentStroke.erasedTextIds ?? []),
+          ...textTool.erase(last, p, currentStroke.size / 2),
+        ]),
+      ];
     applyCommandStyle(ctx, currentStroke);
 
     const mx = (last.x + p.x) / 2;
@@ -717,6 +769,7 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
         queueBoardPersistence();
       }
       currentStroke = null;
+      textTool.clearErasePreview();
       copyHistorySurfaceToVisible();
     }
     return true;
@@ -729,12 +782,14 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
   }
 
   function clear() {
+    if (!textTool.finish()) return;
     finishStroke({ commit: false });
 
     if (commandHistory.length === 0) {
       redoHistory.length = 0;
       fillCanvasBackground(historyCtx);
       copyHistorySurfaceToVisible();
+      textTool.paint();
       syncHistoryButtons();
       queueBoardPersistence();
       setStatus(t('cleared'));
@@ -744,11 +799,16 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
     pushHistoryCommand({ type: 'clear' });
     drawCommandToContext(historyCtx, { type: 'clear' });
     copyHistorySurfaceToVisible();
+    textTool.paint();
     queueBoardPersistence();
     setStatus(t('cleared'));
   }
 
   function undo() {
+    if (textTool.isEditing()) {
+      textTool.undo();
+      return;
+    }
     if (!commandHistory.length) return;
     finishStroke({ commit: false });
     const command = commandHistory.pop();
@@ -761,6 +821,10 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
   }
 
   function redo() {
+    if (textTool.isEditing()) {
+      textTool.redo();
+      return;
+    }
     if (!redoHistory.length) return;
     finishStroke({ commit: false });
     const command = redoHistory.pop();
@@ -768,6 +832,7 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
     pushHistoryCommand(command, { clearRedo: false });
     drawCommandToContext(historyCtx, command);
     copyHistorySurfaceToVisible();
+    textTool.paint();
     queueBoardPersistence();
     setStatus(t('redo'));
   }
@@ -844,6 +909,7 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
 
     octx.setTransform(1, 0, 0, 1, 0, 0);
     octx.drawImage(canvas, 0, 0);
+    octx.drawImage(textLayer, 0, 0);
 
     return {
       fileBlob: await canvasToPngBlob(out),
@@ -854,6 +920,7 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
   }
 
   async function downloadDrawingAsPng() {
+    if (!textTool.finish()) return;
     if (saveBusy) return;
 
     saveBusy = true;
@@ -905,14 +972,16 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
   canvas.addEventListener('dragstart', (e) => e.preventDefault());
   document.addEventListener('selectstart', preventSelectionWhileDrawing);
 
-  penBtn.addEventListener('click', () => {
-    tool = 'pen';
+  function selectTool(next: BoardTool) {
+    if (!textTool.activate(next === 'text')) return;
+    finishStroke({ commit: true });
+    tool = next;
     setActive();
-  });
-  eraseBtn.addEventListener('click', () => {
-    tool = 'eraser';
-    setActive();
-  });
+    canvas.focus({ preventScroll: true });
+  }
+  textBtn.addEventListener('click', () => selectTool('text'));
+  penBtn.addEventListener('click', () => selectTool('pen'));
+  eraseBtn.addEventListener('click', () => selectTool('eraser'));
   undoBtn?.addEventListener('click', undo);
   redoBtn?.addEventListener('click', redo);
 
@@ -936,6 +1005,8 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
 
   window.addEventListener('resize', resize);
   document.addEventListener('keydown', (event) => {
+    if (event.defaultPrevented || event.isComposing) return;
+    if (textTool.handleKey(event)) return;
     if (isEditableElement(document.activeElement)) return;
     if (!(event.ctrlKey || event.metaKey)) return;
 
@@ -967,5 +1038,12 @@ applyButtonIcon(requireElement('save', 'button'), IconDownload);
 
   resize();
   setStatus(t('ready'));
-  void hydrateBoardDrawing();
+  void hydrateBoardDrawing().finally(() => {
+    boardReady = true;
+    textBtn.disabled = false;
+    if (textTool.recover()) {
+      tool = 'text';
+      setActive({ announce: false });
+    }
+  });
 })();

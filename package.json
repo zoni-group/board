@@ -15,10 +15,12 @@
     "test:watch": "vitest",
     "test:unit": "vitest run test/unit",
     "test:smoke": "vitest run test/smoke",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.1",
     "eslint": "^10.1.0",
     "globals": "^17.4.0",
     "jsdom": "^29.0.1",
@@ -30,7 +32,8 @@
     "vitest": "^4.1.2"
   },
   "dependencies": {
-    "@jaames/iro": "^5.5.2"
+    "@jaames/iro": "^5.5.2",
+    "@notectl/core": "2.4.2"
   },
   "engines": {
     "node": ">=24"

@@ -80,7 +80,7 @@ export function createIndexedJsonKeyValueStore({
       await new Promise<void>((resolve, reject) => {
         const transaction = database.transaction(storeName, 'readwrite');
         const request = transaction.objectStore(storeName).put(value, key);
-        request.onsuccess = () => resolve();
+        transaction.oncomplete = () => resolve();
         request.onerror = () => reject(request.error);
         transaction.onabort = () => reject(transaction.error ?? request.error);
       });
@@ -98,7 +98,7 @@ export function createIndexedJsonKeyValueStore({
       await new Promise<void>((resolve, reject) => {
         const transaction = database.transaction(storeName, 'readwrite');
         const request = transaction.objectStore(storeName).delete(key);
-        request.onsuccess = () => resolve();
+        transaction.oncomplete = () => resolve();
         request.onerror = () => reject(request.error);
         transaction.onabort = () => reject(transaction.error ?? request.error);
       });

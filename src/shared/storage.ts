@@ -67,11 +67,14 @@ export function loadJson(key: string, fallback: unknown = null): unknown {
   }
 }
 
-export function saveJson(key: string, value: unknown): void {
+export function saveJson(key: string, value: unknown): boolean {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) return false;
+    localStorage.setItem(key, serialized);
+    return true;
   } catch {
-    // ignore
+    return false;
   }
 }
 
