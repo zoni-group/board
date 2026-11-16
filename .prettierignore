@@ -4,3 +4,6 @@ node_modules
 package-lock.json
 public/geo
 *.Zone.Identifier
+
+test-results
+playwright-report

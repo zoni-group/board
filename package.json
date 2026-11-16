@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -14,20 +14,26 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:unit": "vitest run test/unit",
-    "test:smoke": "vitest run test/smoke"
+    "test:smoke": "vitest run test/smoke",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.1",
     "eslint": "^10.1.0",
     "globals": "^17.4.0",
     "jsdom": "^29.0.1",
     "less": "^4.5.1",
     "prettier": "^3.8.1",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "~8.72.2",
     "vite": "^7.2.4",
     "vitest": "^4.1.2"
   },
   "dependencies": {
-    "@jaames/iro": "^5.5.2"
+    "@jaames/iro": "^5.5.2",
+    "@notectl/core": "2.4.2"
   },
   "engines": {
     "node": ">=24"

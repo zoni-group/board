@@ -28,3 +28,6 @@ public/geo/ansv_cameras_compact.kdbush
 *PROJECT_STRUCTURE.md
 *AGENTS.md
 *.Makefile
+
+playwright-report/
+test-results/

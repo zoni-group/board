@@ -1,5 +1,6 @@
 import js from '@eslint/js';
 import globals from 'globals';
+import tseslint from 'typescript-eslint';
 
 const vitestGlobals = {
   afterAll: 'readonly',
@@ -18,12 +19,24 @@ export default [
     ignores: [
       'dist/**',
       'coverage/**',
+      'test-results/**',
+      'playwright-report/**',
       'node_modules/**',
       'public/geo/**',
       '**/*.Zone.Identifier',
     ],
   },
   js.configs.recommended,
+  ...tseslint.configs.recommended.map((config) => ({
+    ...config,
+    files: ['src/**/*.ts'],
+  })),
+  {
+    files: ['src/**/*.ts'],
+    languageOptions: {
+      globals: globals.browser,
+    },
+  },
   {
     files: ['**/*.{js,mjs}'],
     languageOptions: {
