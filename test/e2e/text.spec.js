@@ -18,6 +18,17 @@ async function objects(page) {
     return resolveTextObjects((await loadBoardDrawing()).commands);
   });
 }
+async function expectEditorSelection(input, anchor, head = anchor) {
+  // Native arrow keys update the editor model through asynchronous selectionchange events.
+  await expect
+    .poll(() =>
+      input.evaluate((element) => {
+        const selection = element.getRootNode().host.getState().selection;
+        return { anchor: selection.anchor?.offset, head: selection.head?.offset };
+      })
+    )
+    .toEqual({ anchor, head });
+}
 async function highlight(page, colorIndex) {
   const root = page.locator('notectl-editor');
   await root.getByRole('button', { name: 'Highlight', exact: true }).click();
@@ -43,12 +54,14 @@ test('highlights selected words, changes and removes colors, and highlights subs
   const root = page.locator('notectl-editor');
   await input.press('Home');
   for (let index = 0; index < 6; index++) await input.press('ArrowRight');
+  await expectEditorSelection(input, 6);
   await input.press('Shift+End');
+  await expectEditorSelection(input, 6, 11);
   await root.getByRole('button', { name: 'Bold', exact: true }).click();
   await root.getByRole('button', { name: 'Italic', exact: true }).click();
   await highlight(page, 0);
   const background = input.locator('[style*="background-color"]');
-  await expect(background).toHaveText('world');
+  await expect(background).toHaveJSProperty('textContent', 'world');
   await expect(background).toHaveCSS('background-color', 'rgb(255, 241, 118)');
   await highlight(page, 2);
   await expect(background).toHaveCSS('background-color', 'rgb(100, 181, 246)');
@@ -77,7 +90,9 @@ test('highlights selected words, changes and removes colors, and highlights subs
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   input = await editor(page);
   await input.press('End');
+  await expectEditorSelection(input, 11);
   for (let index = 0; index < 5; index++) await input.press('Shift+ArrowLeft');
+  await expectEditorSelection(input, 11, 6);
   await removeHighlight(page);
   await expect(input.locator('[style*="background-color"]')).toHaveCount(0);
   await input.press('End');
