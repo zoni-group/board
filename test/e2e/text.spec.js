@@ -18,10 +18,161 @@ async function objects(page) {
     return resolveTextObjects((await loadBoardDrawing()).commands);
   });
 }
+async function highlight(page, colorIndex) {
+  const root = page.locator('notectl-editor');
+  await root.getByRole('button', { name: 'Highlight', exact: true }).click();
+  await expect(root.getByRole('gridcell')).toHaveCount(5);
+  await root.getByRole('gridcell').nth(colorIndex).click();
+}
+
+async function removeHighlight(page) {
+  const root = page.locator('notectl-editor');
+  await root.getByRole('button', { name: 'Highlight', exact: true }).click();
+  await root.getByRole('button', { name: 'None', exact: true }).click();
+}
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Text', exact: true })).toBeEnabled();
+});
+
+test('highlights selected words, changes and removes colors, and highlights subsequent typing', async ({
+  page,
+}) => {
+  let input = await startText(page);
+  const root = page.locator('notectl-editor');
+  await input.press('Home');
+  for (let index = 0; index < 6; index++) await input.press('ArrowRight');
+  await input.press('Shift+End');
+  await root.getByRole('button', { name: 'Bold', exact: true }).click();
+  await root.getByRole('button', { name: 'Italic', exact: true }).click();
+  await highlight(page, 0);
+  const background = input.locator('[style*="background-color"]');
+  await expect(background).toHaveText('world');
+  await expect(background).toHaveCSS('background-color', 'rgb(255, 241, 118)');
+  await highlight(page, 2);
+  await expect(background).toHaveCSS('background-color', 'rgb(100, 181, 246)');
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(background).toHaveCSS('background-color', 'rgb(255, 241, 118)');
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
+  await expect(background).toHaveCSS('background-color', 'rgb(100, 181, 246)');
+  await root.getByRole('button', { name: 'Highlight', exact: true }).click();
+  await root.getByRole('gridcell').first().press('Escape');
+  await expect(root.getByRole('gridcell')).toHaveCount(0);
+  await expect(input).toBeVisible();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect
+    .poll(async () => (await objects(page))[0]?.paragraphs[0].runs)
+    .toMatchObject([
+      { text: 'Hello ' },
+      { text: 'world', fontSize: 32, bold: true, italic: true, highlightRaw: '#64b5f6' },
+    ]);
+  const saved = (await objects(page))[0];
+  expect(saved.paragraphs[0].runs[0]).not.toHaveProperty('highlightRaw');
+  expect(saved.paragraphs[0].runs[1].inkRaw).toBe(saved.paragraphs[0].runs[0].inkRaw);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect.poll(async () => (await objects(page)).length).toBe(0);
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
+  await expect.poll(async () => (await objects(page))[0]).toEqual(saved);
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  input = await editor(page);
+  await input.press('End');
+  for (let index = 0; index < 5; index++) await input.press('Shift+ArrowLeft');
+  await removeHighlight(page);
+  await expect(input.locator('[style*="background-color"]')).toHaveCount(0);
+  await input.press('End');
+  await highlight(page, 3);
+  await input.pressSequentially(' bright');
+  await removeHighlight(page);
+  await input.pressSequentially(' plain');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect
+    .poll(async () => (await objects(page))[0]?.paragraphs[0].runs.map((r) => r.text).join(''))
+    .toBe('Hello world bright plain');
+  const runs = (await objects(page))[0].paragraphs[0].runs;
+  expect(runs.filter((run) => run.highlightRaw)).toEqual([
+    { ...saved.paragraphs[0].runs[1], text: ' bright', highlightRaw: '#f48fb1' },
+  ]);
+  expect(runs.find((run) => run.text === 'world')).toMatchObject({
+    bold: true,
+    italic: true,
+    fontSize: 32,
+  });
+  expect(runs.at(-1)).not.toHaveProperty('highlightRaw');
+});
+
+test('renders multiline highlights in PNG exports and preserves them after reload and re-editing', async ({
+  page,
+}) => {
+  const input = await startText(page, 'Yellow');
+  await input.press('ControlOrMeta+a');
+  await highlight(page, 0);
+  await input.press('End');
+  await input.press('Enter');
+  await highlight(page, 2);
+  await input.pressSequentially('Blue');
+  await input.press('Home');
+  await input.press('Shift+End');
+  const root = page.locator('notectl-editor');
+  await root.getByRole('combobox', { name: 'Font Size', exact: true }).click();
+  await root.getByRole('option', { name: '64', exact: true }).click();
+  const preview = await input.locator('[style*="background-color"]').evaluateAll((elements) =>
+    elements.map((element) => ({
+      text: element.textContent,
+      width: element.getBoundingClientRect().width,
+      height: element.getBoundingClientRect().height,
+    }))
+  );
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Save PNG', exact: true }).click();
+  const download = await downloaded;
+  const chunks = [];
+  for await (const chunk of await download.createReadStream()) chunks.push(chunk);
+  const counts = await page.evaluate(async (png) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${png}`;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(image, 0, 0);
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const counts = { yellow: 0, blue: 0 };
+    for (let index = 0; index < data.length; index += 4) {
+      if (data[index + 3] !== 255) continue;
+      if (data[index] === 255 && data[index + 1] === 241 && data[index + 2] === 118)
+        counts.yellow++;
+      if (data[index] === 100 && data[index + 1] === 181 && data[index + 2] === 246) counts.blue++;
+    }
+    return counts;
+  }, Buffer.concat(chunks).toString('base64'));
+  expect(counts.yellow).toBeGreaterThan(100);
+  expect(counts.blue).toBeGreaterThan(100);
+  await expect
+    .poll(async () => (await objects(page))[0]?.paragraphs[1].runs[0].highlightRaw)
+    .toBe('#64b5f6');
+  const saved = (await objects(page))[0];
+  expect(saved.paragraphs[0].runs[0].highlightRaw).toBe('#fff176');
+  const committed = await page.evaluate(async (object) => {
+    const { layoutText } = await import('/src/board/text-layout.ts');
+    return layoutText(document.createElement('canvas').getContext('2d'), object).runs.map(
+      ({ run, width, ascent, descent }) => ({ text: run.text, width, height: ascent + descent })
+    );
+  }, saved);
+  expect(preview.map((run) => run.text)).toEqual(committed.map((run) => run.text));
+  for (let index = 0; index < preview.length; index++) {
+    expect(Math.abs(preview[index].width - committed[index].width)).toBeLessThan(2);
+    expect(Math.abs(preview[index].height - committed[index].height)).toBeLessThan(2);
+  }
+  await page.reload();
+  await expect.poll(async () => (await objects(page))[0]).toEqual(saved);
+  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await page.locator('#pad').click({ position: { x: 110, y: 155 } });
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  const restored = (await editor(page)).locator('[style*="background-color"]');
+  await expect(restored.nth(0)).toHaveCSS('background-color', 'rgb(255, 241, 118)');
+  await expect(restored.nth(1)).toHaveCSS('background-color', 'rgb(100, 181, 246)');
 });
 
 test('formats selected words, commits one board edit, and exports both canvas layers', async ({
@@ -60,7 +211,9 @@ test('formats selected words, commits one board edit, and exports both canvas la
 test('recovers unfinished text, edits it, moves it, and erases the whole block', async ({
   page,
 }) => {
-  await startText(page, 'Draft');
+  const draftInput = await startText(page, 'Draft');
+  await draftInput.press('ControlOrMeta+a');
+  await highlight(page, 1);
   await expect
     .poll(() =>
       page.evaluate(() =>
@@ -70,11 +223,25 @@ test('recovers unfinished text, edits it, moves it, and erases the whole block',
       )
     )
     .toBe('Draft');
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          JSON.parse(localStorage.getItem('vatio_board_text_draft_v1'))?.object.paragraphs[0]
+            .runs[0].highlightRaw
+      )
+    )
+    .toBe('#aed581');
   await page.reload();
   await expect(await editor(page)).toBeVisible();
   await expect(await editor(page)).toContainText('Draft');
+  await expect((await editor(page)).locator('[style*="background-color"]')).toHaveCSS(
+    'background-color',
+    'rgb(174, 213, 129)'
+  );
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await expect.poll(async () => (await objects(page)).length).toBe(1);
+  expect((await objects(page))[0].paragraphs[0].runs[0].highlightRaw).toBe('#aed581');
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   const input = await editor(page);
   await input.press('ControlOrMeta+End');
@@ -92,6 +259,7 @@ test('recovers unfinished text, edits it, moves it, and erases the whole block',
   await expect.poll(async () => (await objects(page)).length).toBe(0);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect.poll(async () => (await objects(page)).length).toBe(1);
+  expect((await objects(page))[0].paragraphs[0].runs[0].highlightRaw).toBe('#aed581');
 });
 
 test('keeps editing undo separate and cancels edits without changing the board', async ({
@@ -241,15 +409,20 @@ test('closes formatting popups without cancelling text and ignores finish during
   await expect(root).toHaveCount(0);
 });
 
-test('creates and selects text with touch taps', async ({ page, isMobile }) => {
+test('creates, highlights, and selects text with touch taps', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Touch profile only');
   await page.getByRole('button', { name: 'Text', exact: true }).tap();
   const board = await page.locator('#pad').boundingBox();
   await page.touchscreen.tap(board.x + 40, board.y + 100);
   const input = await editor(page);
   await input.pressSequentially('Touch');
+  await input.press('ControlOrMeta+a');
+  const root = page.locator('notectl-editor');
+  await root.getByRole('button', { name: 'Highlight', exact: true }).tap();
+  await root.getByRole('gridcell').nth(4).tap();
   await page.getByRole('button', { name: 'Done', exact: true }).tap();
   await expect.poll(async () => (await objects(page)).length).toBe(1);
+  expect((await objects(page))[0].paragraphs[0].runs[0].highlightRaw).toBe('#ffab91');
   await page.touchscreen.tap(board.x + 50, board.y + 110);
   await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeVisible();
 });
@@ -352,10 +525,19 @@ test('keeps inline layout across theme changes and supports the Spanish editor',
   await input.press('ControlOrMeta+a');
   await root.getByRole('combobox', { name: 'Font Size', exact: true }).click();
   await root.getByRole('option', { name: '16', exact: true }).click();
+  await highlight(page, 0);
+  await expect(input.locator('[style*="background-color"]')).toHaveCSS(
+    'background-color',
+    'rgb(255, 241, 118)'
+  );
   await expect
     .poll(() => input.locator('p').evaluate((element) => element.getBoundingClientRect().height))
     .toBeLessThan(25);
   await page.emulateMedia({ colorScheme: 'light' });
+  await expect(input.locator('[style*="background-color"]')).toHaveCSS(
+    'background-color',
+    'rgb(255, 241, 118)'
+  );
   await expect
     .poll(() => input.locator('p').evaluate((element) => element.getBoundingClientRect().height))
     .toBeLessThan(25);
@@ -374,6 +556,15 @@ test('keeps inline layout across theme changes and supports the Spanish editor',
   await expect(
     page.locator('notectl-editor').getByRole('button', { name: 'Negrita', exact: true })
   ).toBeVisible();
+  await page
+    .locator('notectl-editor')
+    .getByRole('button', { name: 'Resaltado', exact: true })
+    .click();
+  await expect(
+    page.locator('notectl-editor').getByRole('button', { name: 'Ninguno', exact: true })
+  ).toBeVisible();
+  await expect(page.locator('notectl-editor').getByRole('gridcell')).toHaveCount(5);
+  await page.locator('notectl-editor').getByRole('gridcell').first().press('Escape');
   await page.getByRole('button', { name: 'Listo', exact: true }).click();
 });
 

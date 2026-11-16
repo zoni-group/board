@@ -301,18 +301,24 @@ describe('board storage', () => {
     }
   });
 
-  it('round-trips text edits, movement, and grouped erasure in history and redo', async () => {
+  it('round-trips plain and highlighted text edits and grouped erasure in history and redo', async () => {
     const database = createFakeIndexedDb();
     vi.stubGlobal('indexedDB', database);
     vi.resetModules();
     try {
       const storage = await import('../../src/board/storage.ts');
+      const highlighted = textObject({ id: 'highlighted' });
+      highlighted.paragraphs[0].runs[0].highlightRaw = '#fff176';
       const snapshot = {
         commands: [
           { type: 'text-set', object: textObject() },
+          { type: 'text-set', object: highlighted },
           { ...createStroke(0), erasedTextIds: ['text-1'] },
         ],
-        redoCommands: [{ type: 'text-delete', ids: ['text-1'] }],
+        redoCommands: [
+          { type: 'text-delete', ids: ['text-1'] },
+          { type: 'text-set', object: highlighted },
+        ],
       };
       expect(await storage.saveBoardDrawing(snapshot)).toBe(true);
       expect(await storage.loadBoardDrawing()).toMatchObject(snapshot);

@@ -13,6 +13,7 @@ export interface TextRun {
   text: string;
   fontSize: number;
   inkRaw: string;
+  highlightRaw?: string;
   bold: boolean;
   italic: boolean;
 }
@@ -96,11 +97,17 @@ export function normalizeTextObject(value: unknown): TextObject | null {
       if (!isRecord(run) || typeof run.text !== 'string' || /[\r\n]/.test(run.text)) return null;
       if (!isFiniteNumber(run.fontSize) || run.fontSize <= 0 || run.fontSize > 1000) return null;
       if (typeof run.inkRaw !== 'string' || !/^#[\da-f]{6}$/i.test(run.inkRaw)) return null;
+      if (
+        run.highlightRaw !== undefined &&
+        (typeof run.highlightRaw !== 'string' || !/^#[\da-f]{6}$/i.test(run.highlightRaw))
+      )
+        return null;
       if (typeof run.bold !== 'boolean' || typeof run.italic !== 'boolean') return null;
       runs.push({
         text: run.text,
         fontSize: run.fontSize,
         inkRaw: run.inkRaw,
+        ...(run.highlightRaw !== undefined ? { highlightRaw: run.highlightRaw } : {}),
         bold: run.bold,
         italic: run.italic,
       });

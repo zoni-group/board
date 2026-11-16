@@ -27,6 +27,9 @@ describe('text commands and scene', () => {
       { fontSize: Infinity },
       { fontSize: -1 },
       { inkRaw: 'url(remote)' },
+      { highlightRaw: 'url(remote)' },
+      { highlightRaw: '#ff0' },
+      { highlightRaw: null },
       { text: 'a\nb' },
       { bold: 'true' },
     ]) {
@@ -35,6 +38,17 @@ describe('text commands and scene', () => {
       });
       expect(normalizeTextObject(invalid)).toBeNull();
     }
+  });
+  it('preserves optional highlighting through validation and cloning without changing old text', () => {
+    const plain = textObject();
+    expect(normalizeTextObject(plain)).toEqual(plain);
+    expect(normalizeTextObject(plain).paragraphs[0].runs[0]).not.toHaveProperty('highlightRaw');
+    const highlighted = textObject();
+    highlighted.paragraphs[0].runs[0].highlightRaw = '#fff176';
+    expect(normalizeTextObject(highlighted)).toEqual(highlighted);
+    const copy = cloneCommand({ type: 'text-set', object: highlighted });
+    highlighted.paragraphs[0].runs[0].highlightRaw = '#64b5f6';
+    expect(copy.object.paragraphs[0].runs[0].highlightRaw).toBe('#fff176');
   });
   it('clones rich text without sharing mutable runs or positions', () => {
     const object = textObject();
@@ -82,6 +96,7 @@ describe('text layout and eraser geometry', () => {
         fontBoundingBoxDescent: 8,
       }),
       fillText: vi.fn(),
+      fillRect: vi.fn(),
     };
   }
   it('aligns styled runs on shared baselines and lays out explicit blank lines', () => {
@@ -99,7 +114,49 @@ describe('text layout and eraser geometry', () => {
     expect(layout.bounds.height).toBeCloseTo(38.4 + 76.8 + 38.4);
     expect(layout.runs[1].x).toBe(35);
     expect(ctx.fillText.mock.calls.map(([text]) => text)).toEqual(['Hello', 'Hi']);
+    expect(ctx.fillRect).not.toHaveBeenCalled();
     expect(layoutText(ctx, object).bounds).toEqual(layout.bounds);
+  });
+  it('paints run-sized opaque backgrounds before every glyph, including spaces and mixed sizes', () => {
+    const base = textObject().paragraphs[0].runs[0];
+    const object = textObject({
+      paragraphs: [
+        {
+          align: 'left',
+          runs: [
+            { ...base, text: 'A ', fontSize: 16, italic: true, highlightRaw: '#fff176' },
+            { ...base, text: 'B', fontSize: 64, bold: true, highlightRaw: '#64b5f6' },
+            { ...base, text: 'C' },
+          ],
+        },
+        { align: 'right', runs: [{ ...base, text: 'D', highlightRaw: '#aed581' }] },
+      ],
+    });
+    const ctx = context();
+    ctx.globalAlpha = 0.3;
+    ctx.measureText = (text) => {
+      const size = Number.parseFloat(ctx.font.match(/([\d.]+)px/)[1]);
+      return {
+        width: text.length * 10,
+        fontBoundingBoxAscent: size * 0.75,
+        fontBoundingBoxDescent: size * 0.25,
+      };
+    };
+    const colors = [];
+    ctx.fillRect.mockImplementation(() => colors.push(ctx.fillStyle));
+    const layout = drawText(ctx, object);
+    expect(ctx.globalAlpha).toBe(1);
+    expect(colors).toEqual(['#fff176', '#64b5f6', '#aed581']);
+    expect(ctx.fillRect.mock.calls).toEqual([
+      [20, layout.runs[0].baseline - 12, 20, 16],
+      [40, layout.runs[1].baseline - 48, 10, 64],
+      [50, layout.runs[3].baseline - 24, 10, 32],
+    ]);
+    expect(layout.runs[0].baseline).toBe(layout.runs[1].baseline);
+    expect(Math.max(...ctx.fillRect.mock.invocationCallOrder)).toBeLessThan(
+      Math.min(...ctx.fillText.mock.invocationCallOrder)
+    );
+    expect(ctx.fillStyle).toBe(base.inkRaw);
   });
   it('detects swept eraser intersections, including fast moves that skip a whole block', () => {
     const bounds = { x: 20, y: 30, width: 50, height: 40 };
@@ -115,6 +172,7 @@ describe('local text recovery', () => {
     const original = textObject(),
       object = textObject({ position: { x: 22, y: 30 } });
     const draft = { token: 'draft-1', original, object };
+    object.paragraphs[0].runs[0].highlightRaw = '#fff176';
     expect(saveTextDraft(draft)).toBe(true);
     expect(recoverTextDraft([original])).toEqual(draft);
     clearTextDraft('older-token');

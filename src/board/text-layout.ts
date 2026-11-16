@@ -11,7 +11,14 @@ export interface TextBounds {
 }
 export interface TextLayout {
   bounds: TextBounds;
-  runs: { run: TextRun; x: number; baseline: number }[];
+  runs: {
+    run: TextRun;
+    x: number;
+    baseline: number;
+    width: number;
+    ascent: number;
+    descent: number;
+  }[];
 }
 
 export function textFont(run: TextRun): string {
@@ -30,9 +37,11 @@ export function layoutText(ctx: CanvasRenderingContext2D, object: TextObject): T
     const runs = paragraph.runs.map((run) => {
       ctx.font = textFont(run);
       const metrics = ctx.measureText(run.text.replace(/\t/g, '    '));
-      ascent = Math.max(ascent, metrics.fontBoundingBoxAscent || run.fontSize * 0.9);
-      descent = Math.max(descent, metrics.fontBoundingBoxDescent || run.fontSize * 0.2);
-      return { run, width: metrics.width };
+      const runAscent = metrics.fontBoundingBoxAscent || run.fontSize * 0.9;
+      const runDescent = metrics.fontBoundingBoxDescent || run.fontSize * 0.2;
+      ascent = Math.max(ascent, runAscent);
+      descent = Math.max(descent, runDescent);
+      return { run, width: metrics.width, ascent: runAscent, descent: runDescent };
     });
     if (!runs.length) {
       ascent = size * 0.9;
@@ -60,7 +69,7 @@ export function layoutText(ctx: CanvasRenderingContext2D, object: TextObject): T
           : 0);
     const baseline = y + (line.height - line.ascent - line.descent) / 2 + line.ascent;
     for (const item of line.runs) {
-      runs.push({ run: item.run, x, baseline });
+      runs.push({ ...item, x, baseline });
       x += item.width;
     }
     y += line.height;
@@ -76,8 +85,15 @@ export function drawText(ctx: CanvasRenderingContext2D, object: TextObject): Tex
   const layout = layoutText(ctx, object);
   ctx.save();
   ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
+  // Paint every background first, so adjacent highlights cannot cover italic overhangs.
+  for (const { run, x, baseline, width, ascent, descent } of layout.runs) {
+    if (!run.highlightRaw) continue;
+    ctx.fillStyle = run.highlightRaw;
+    ctx.fillRect(x, baseline - ascent, width, ascent + descent);
+  }
   for (const { run, x, baseline } of layout.runs) {
     ctx.font = textFont(run);
     ctx.fillStyle = run.inkRaw;

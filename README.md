@@ -112,7 +112,11 @@ remain local to the browser.
 ## Text Tool
 
 Select **Text**, then click or tap the board to type. The editor supports selected-word bold,
-italic, color, and font size, with alignment per paragraph. Enter adds a line; text auto-sizes
+italic, text color, highlighting, and font size, with alignment per paragraph. Highlight offers
+yellow, green, blue, pink, and orange backgrounds; choose **None** to remove it. Select words
+to highlight them, or choose a color at the caret to highlight text as you type. Highlighting
+preserves other formatting and stays with the text when saved, recovered, or exported to PNG.
+Enter adds a line; text auto-sizes
 without wrapping. Pasted content is plain text. A system font keeps text independent of web fonts.
 
 Use **Done**, Ctrl/Cmd+Enter, or click outside to finish. Escape cancels the edit (or closes an

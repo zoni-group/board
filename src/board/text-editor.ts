@@ -21,6 +21,7 @@ import type {
 import { TextFormattingPlugin } from '@notectl/core/plugins/text-formatting';
 import { FontSizePlugin } from '@notectl/core/plugins/font-size';
 import { TextColorPlugin } from '@notectl/core/plugins/text-color';
+import { HighlightPlugin } from '@notectl/core/plugins/highlight';
 import { ToolbarOverflowBehavior } from '@notectl/core/plugins/toolbar';
 import { AlignmentPlugin } from '@notectl/core/plugins/alignment';
 import type { Language } from '../i18n.ts';
@@ -34,6 +35,20 @@ const DEFAULT_RUN: Omit<TextRun, 'text'> = {
   italic: false,
 };
 
+function normalizeHexColor(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  if (/^#[\da-f]{3}$/i.test(value))
+    return (
+      '#' +
+      value
+        .slice(1)
+        .split('')
+        .map((c) => c + c)
+        .join('')
+    );
+  return /^#[\da-f]{6}$/i.test(value) ? value : undefined;
+}
+
 export function toEditorDocument(object: TextObject): EditorDocument {
   return createDocument(
     object.paragraphs.map((p) =>
@@ -46,6 +61,8 @@ export function toEditorDocument(object: TextObject): EditorDocument {
           ];
           if (run.bold) marks.push({ type: markType('bold') });
           if (run.italic) marks.push({ type: markType('italic') });
+          if (run.highlightRaw)
+            marks.push({ type: markType('highlight'), attrs: { color: run.highlightRaw } });
           return createTextNode(run.text, marks);
         }),
         undefined,
@@ -79,20 +96,14 @@ export function fromEditorDocument(
         if (!isTextNode(child)) continue;
         const sizeMark = child.marks.find((m) => m.type === 'fontSize');
         const colorMark = child.marks.find((m) => m.type === 'textColor');
+        const highlightMark = child.marks.find((m) => m.type === 'highlight');
         const size = Number.parseFloat(String(sizeMark?.attrs?.size ?? DEFAULT_TEXT_SIZE));
-        let color = String(colorMark?.attrs?.color ?? inkRaw);
-        if (/^#[\da-f]{3}$/i.test(color))
-          color =
-            '#' +
-            color
-              .slice(1)
-              .split('')
-              .map((c) => c + c)
-              .join('');
-        if (!/^#[\da-f]{6}$/i.test(color)) color = inkRaw;
+        const color = normalizeHexColor(colorMark?.attrs?.color) ?? inkRaw;
+        const highlightRaw = normalizeHexColor(highlightMark?.attrs?.color);
         const style = {
           fontSize: Number.isFinite(size) ? Math.max(1, Math.min(1000, size)) : DEFAULT_TEXT_SIZE,
           inkRaw: color,
+          ...(highlightRaw ? { highlightRaw } : {}),
           bold: child.marks.some((m) => m.type === 'bold'),
           italic: child.marks.some((m) => m.type === 'italic'),
         };
@@ -108,6 +119,7 @@ export function fromEditorDocument(
               previous &&
               previous.fontSize === style.fontSize &&
               previous.inkRaw === style.inkRaw &&
+              previous.highlightRaw === style.highlightRaw &&
               previous.bold === style.bold &&
               previous.italic === style.italic
             )
@@ -217,6 +229,9 @@ export async function mountTextEditor(
         [
           new FontSizePlugin({ defaultSize: DEFAULT_TEXT_SIZE, sizes: [16, 24, 32, 48, 64, 96] }),
           new TextColorPlugin(),
+          new HighlightPlugin({
+            colors: ['#fff176', '#aed581', '#64b5f6', '#f48fb1', '#ffab91'],
+          }),
         ],
         [
           new AlignmentPlugin({
