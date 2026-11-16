@@ -1,16 +1,19 @@
-import { createIndexedJsonKeyValueStore } from "../shared/indexed-storage.js";
-import { loadJson, removeStoredValue, saveJson } from "../shared/storage.js";
+import { createIndexedJsonKeyValueStore } from '../shared/indexed-storage.ts';
+import { loadJson, removeStoredValue, saveJson } from '../shared/storage.ts';
 
-export const BOARD_DRAWING_KEY = "vatio_board_drawing_v1";
-export const BOARD_SCHEMA_VERSION = 1;
+import { BOARD_SCHEMA_VERSION, isFiniteNumber, isRecord, normalizeCommands } from './model.ts';
+import type { BoardCommand, BoardDrawing, BoardSnapshot } from './model.ts';
+
+export { BOARD_SCHEMA_VERSION } from './model.ts';
+export const BOARD_DRAWING_KEY = 'vatio_board_drawing_v1';
 export const BOARD_PERSIST_CHUNK_SIZE = 100;
 
-const BOARD_DB_NAME = "vatio-board-storage";
+const BOARD_DB_NAME = 'vatio-board-storage';
 const BOARD_DB_VERSION = 1;
-const BOARD_DB_STORE = "boardRecords";
-const BOARD_HISTORY_SECTION = "history";
-const BOARD_REDO_SECTION = "redo";
-const BOARD_CHUNK_KEY_PREFIX = "boardChunk:";
+const BOARD_DB_STORE = 'boardRecords';
+const BOARD_HISTORY_SECTION = 'history';
+const BOARD_REDO_SECTION = 'redo';
+const BOARD_CHUNK_KEY_PREFIX = 'boardChunk:';
 
 const boardStore = createIndexedJsonKeyValueStore({
   dbName: BOARD_DB_NAME,
@@ -18,76 +21,49 @@ const boardStore = createIndexedJsonKeyValueStore({
   storeName: BOARD_DB_STORE,
 });
 
-let boardMigrationPromise = null;
-let pendingSaveDocument = null;
-let saveLoopPromise = null;
-let generationCounter = 0;
-
-function isFiniteNumber(value) {
-  return Number.isFinite(value);
+interface SnapshotReference {
+  generation: string;
+  commandCount: number;
+  redoCount: number;
+  chunkCount: number;
+  redoChunkCount: number;
 }
 
-function normalizePositiveInteger(value, fallback = 0) {
+interface StoredBoardDocument extends BoardDrawing, SnapshotReference {
+  previousGeneration: string;
+  previousCommandCount: number;
+  previousRedoCount: number;
+  previousChunkCount: number;
+  previousRedoChunkCount: number;
+}
+
+type HistorySection = 'history' | 'redo';
+
+let boardMigrationPromise: Promise<void> | null = null;
+let pendingSaveDocument: BoardDrawing | null = null;
+let saveLoopPromise: Promise<void> | null = null;
+let generationCounter = 0;
+
+function normalizePositiveInteger(value: unknown, fallback = 0): number {
   if (!isFiniteNumber(value)) return fallback;
   return Math.max(0, Math.round(value));
 }
 
-function cloneJson(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-
-function normalizePoint(point) {
-  if (!point || typeof point !== "object") return null;
-  if (!isFiniteNumber(point.x) || !isFiniteNumber(point.y)) return null;
-
-  return {
-    x: point.x,
-    y: point.y,
-  };
-}
-
-function normalizeCommand(command) {
-  if (!command || typeof command !== "object") return null;
-
-  if (command.type === "clear") {
-    return { type: "clear" };
-  }
-
-  if (command.type !== "stroke") return null;
-
-  const points = Array.isArray(command.points)
-    ? command.points.map(normalizePoint).filter(Boolean)
-    : [];
-
-  if (points.length === 0) return null;
-
-  return {
-    type: "stroke",
-    tool: command.tool === "eraser" ? "eraser" : "pen",
-    size: isFiniteNumber(command.size) && command.size > 0 ? command.size : 6,
-    inkRaw: typeof command.inkRaw === "string" ? command.inkRaw : "#111827",
-    points,
-  };
-}
-
-function normalizeCommands(commands) {
-  if (!Array.isArray(commands)) return [];
-  return commands.map(normalizeCommand).filter(Boolean);
-}
-
-function createStoredDocument(document = {}) {
+function createStoredDocument(value: unknown): StoredBoardDocument {
+  const document = isRecord(value) ? value : {};
   const commands = normalizeCommands(document.commands);
   const redoCommands = normalizeCommands(document.redoCommands);
 
   return {
     version: BOARD_SCHEMA_VERSION,
     updatedAtMs: normalizePositiveInteger(document.updatedAtMs, Date.now()),
-    generation: typeof document.generation === "string" ? document.generation : "",
+    generation: typeof document.generation === 'string' ? document.generation : '',
     commandCount: normalizePositiveInteger(document.commandCount, commands.length),
     redoCount: normalizePositiveInteger(document.redoCount, redoCommands.length),
     chunkCount: normalizePositiveInteger(document.chunkCount, 0),
     redoChunkCount: normalizePositiveInteger(document.redoChunkCount, 0),
-    previousGeneration: typeof document.previousGeneration === "string" ? document.previousGeneration : "",
+    previousGeneration:
+      typeof document.previousGeneration === 'string' ? document.previousGeneration : '',
     previousCommandCount: normalizePositiveInteger(document.previousCommandCount, 0),
     previousRedoCount: normalizePositiveInteger(document.previousRedoCount, 0),
     previousChunkCount: normalizePositiveInteger(document.previousChunkCount, 0),
@@ -97,7 +73,7 @@ function createStoredDocument(document = {}) {
   };
 }
 
-export function createEmptyBoardDrawing() {
+export function createEmptyBoardDrawing(): BoardDrawing {
   return {
     version: BOARD_SCHEMA_VERSION,
     updatedAtMs: 0,
@@ -106,7 +82,7 @@ export function createEmptyBoardDrawing() {
   };
 }
 
-function toBoardDrawing(document) {
+function toBoardDrawing(document: unknown): BoardDrawing {
   const normalized = createStoredDocument(document);
   return {
     version: BOARD_SCHEMA_VERSION,
@@ -116,12 +92,12 @@ function toBoardDrawing(document) {
   };
 }
 
-function createEmbeddedBoardDrawing(document) {
+function createEmbeddedBoardDrawing(document: BoardDrawing) {
   const normalized = toBoardDrawing(document);
   return {
     version: BOARD_SCHEMA_VERSION,
     updatedAtMs: normalized.updatedAtMs || Date.now(),
-    generation: "",
+    generation: '',
     commandCount: normalized.commands.length,
     redoCount: normalized.redoCommands.length,
     chunkCount: 0,
@@ -131,16 +107,16 @@ function createEmbeddedBoardDrawing(document) {
   };
 }
 
-function getBoardChunkKey(generation, section, chunkIndex) {
+function getBoardChunkKey(generation: string, section: HistorySection, chunkIndex: number): string {
   return `${BOARD_CHUNK_KEY_PREFIX}${generation}:${section}:${String(chunkIndex)}`;
 }
 
-function createGenerationId() {
+function createGenerationId(): string {
   generationCounter += 1;
   return `board-${Date.now()}-${generationCounter}`;
 }
 
-async function openBoardDatabase() {
+async function openBoardDatabase(): Promise<IDBDatabase | null> {
   if (!boardStore.hasSupport()) return null;
 
   try {
@@ -150,33 +126,38 @@ async function openBoardDatabase() {
   }
 }
 
-function createSnapshotReference(document, { previous = false } = {}) {
+function createSnapshotReference(
+  document: StoredBoardDocument,
+  { previous = false } = {}
+): SnapshotReference {
   const normalized = createStoredDocument(document);
 
   return previous
     ? {
-      generation: normalized.previousGeneration,
-      commandCount: normalized.previousCommandCount,
-      redoCount: normalized.previousRedoCount,
-      chunkCount: normalized.previousChunkCount,
-      redoChunkCount: normalized.previousRedoChunkCount,
-    }
+        generation: normalized.previousGeneration,
+        commandCount: normalized.previousCommandCount,
+        redoCount: normalized.previousRedoCount,
+        chunkCount: normalized.previousChunkCount,
+        redoChunkCount: normalized.previousRedoChunkCount,
+      }
     : {
-      generation: normalized.generation,
-      commandCount: normalized.commandCount,
-      redoCount: normalized.redoCount,
-      chunkCount: normalized.chunkCount,
-      redoChunkCount: normalized.redoChunkCount,
-    };
+        generation: normalized.generation,
+        commandCount: normalized.commandCount,
+        redoCount: normalized.redoCount,
+        chunkCount: normalized.chunkCount,
+        redoChunkCount: normalized.redoChunkCount,
+      };
 }
 
-function hasPersistedSnapshot(snapshot) {
-  return Boolean(snapshot?.generation)
-    || snapshot?.chunkCount > 0
-    || snapshot?.redoChunkCount > 0;
+function hasPersistedSnapshot(snapshot: SnapshotReference): boolean {
+  return Boolean(snapshot?.generation) || snapshot?.chunkCount > 0 || snapshot?.redoChunkCount > 0;
 }
 
-async function deleteChunkRange(generation, section, chunkCount) {
+async function deleteChunkRange(
+  generation: string,
+  section: HistorySection,
+  chunkCount: number
+): Promise<void> {
   if (!boardStore.hasSupport() || !generation) return;
 
   for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
@@ -184,18 +165,25 @@ async function deleteChunkRange(generation, section, chunkCount) {
   }
 }
 
-async function deleteSnapshotReference(snapshot) {
+async function deleteSnapshotReference(snapshot: SnapshotReference): Promise<void> {
   if (!snapshot?.generation) return;
   await deleteChunkRange(snapshot.generation, BOARD_HISTORY_SECTION, snapshot.chunkCount ?? 0);
   await deleteChunkRange(snapshot.generation, BOARD_REDO_SECTION, snapshot.redoChunkCount ?? 0);
 }
 
-async function saveCommandChunks(generation, section, commands) {
+async function saveCommandChunks(
+  generation: string,
+  section: HistorySection,
+  commands: BoardCommand[]
+): Promise<{ ok: boolean; chunkCount: number }> {
   let chunkIndex = 0;
 
   for (let index = 0; index < commands.length; index += BOARD_PERSIST_CHUNK_SIZE) {
     const chunk = commands.slice(index, index + BOARD_PERSIST_CHUNK_SIZE);
-    const stored = await boardStore.setValue(getBoardChunkKey(generation, section, chunkIndex), chunk);
+    const stored = await boardStore.setValue(
+      getBoardChunkKey(generation, section, chunkIndex),
+      chunk
+    );
     if (!stored) {
       return {
         ok: false,
@@ -211,7 +199,12 @@ async function saveCommandChunks(generation, section, commands) {
   };
 }
 
-async function loadCommandChunks(generation, section, chunkCount, expectedCount) {
+async function loadCommandChunks(
+  generation: string,
+  section: HistorySection,
+  chunkCount: number,
+  expectedCount: number
+): Promise<{ ok: boolean; commands: BoardCommand[] }> {
   if (chunkCount === 0) {
     return {
       ok: expectedCount === 0,
@@ -226,7 +219,7 @@ async function loadCommandChunks(generation, section, chunkCount, expectedCount)
     };
   }
 
-  const commands = [];
+  const commands: BoardCommand[] = [];
 
   for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
     const chunk = await boardStore.getValue(getBoardChunkKey(generation, section, chunkIndex));
@@ -254,7 +247,7 @@ async function loadCommandChunks(generation, section, chunkCount, expectedCount)
   };
 }
 
-async function persistBoardDocument(document) {
+async function persistBoardDocument(document: BoardSnapshot): Promise<boolean> {
   const normalized = toBoardDrawing({
     ...document,
     updatedAtMs: Date.now(),
@@ -269,17 +262,26 @@ async function persistBoardDocument(document) {
   const previousDocument = createStoredDocument(await boardStore.getValue(BOARD_DRAWING_KEY));
   const previousSnapshot = createSnapshotReference(previousDocument);
   const previousBackupSnapshot = createSnapshotReference(previousDocument, { previous: true });
-  const nextGeneration = normalized.commands.length > 0 || normalized.redoCommands.length > 0
-    ? createGenerationId()
-    : "";
+  const nextGeneration =
+    normalized.commands.length > 0 || normalized.redoCommands.length > 0
+      ? createGenerationId()
+      : '';
 
-  const historySave = await saveCommandChunks(nextGeneration, BOARD_HISTORY_SECTION, normalized.commands);
+  const historySave = await saveCommandChunks(
+    nextGeneration,
+    BOARD_HISTORY_SECTION,
+    normalized.commands
+  );
   if (!historySave.ok) {
     await deleteChunkRange(nextGeneration, BOARD_HISTORY_SECTION, historySave.chunkCount);
     return false;
   }
 
-  const redoSave = await saveCommandChunks(nextGeneration, BOARD_REDO_SECTION, normalized.redoCommands);
+  const redoSave = await saveCommandChunks(
+    nextGeneration,
+    BOARD_REDO_SECTION,
+    normalized.redoCommands
+  );
   if (!redoSave.ok) {
     await deleteChunkRange(nextGeneration, BOARD_HISTORY_SECTION, historySave.chunkCount);
     await deleteChunkRange(nextGeneration, BOARD_REDO_SECTION, redoSave.chunkCount);
@@ -311,16 +313,16 @@ async function persistBoardDocument(document) {
 
   removeStoredValue(BOARD_DRAWING_KEY);
   if (
-    previousBackupSnapshot.generation
-    && previousBackupSnapshot.generation !== previousSnapshot.generation
-    && previousBackupSnapshot.generation !== nextGeneration
+    previousBackupSnapshot.generation &&
+    previousBackupSnapshot.generation !== previousSnapshot.generation &&
+    previousBackupSnapshot.generation !== nextGeneration
   ) {
     await deleteSnapshotReference(previousBackupSnapshot);
   }
   return true;
 }
 
-async function migrateLegacyBoardStorage() {
+async function migrateLegacyBoardStorage(): Promise<void> {
   if (!boardStore.hasSupport()) return;
 
   if (!boardMigrationPromise) {
@@ -331,10 +333,10 @@ async function migrateLegacyBoardStorage() {
       const existingValue = await boardStore.getValue(BOARD_DRAWING_KEY);
       if (existingValue !== undefined) return;
 
-      const legacyValue = loadJson(BOARD_DRAWING_KEY, undefined);
-      if (legacyValue === undefined) return;
+      const legacyValue = loadJson(BOARD_DRAWING_KEY);
+      if (!isRecord(legacyValue)) return;
 
-      const stored = await persistBoardDocument(legacyValue);
+      const stored = await persistBoardDocument(toBoardDrawing(legacyValue));
       if (stored) {
         removeStoredValue(BOARD_DRAWING_KEY);
       }
@@ -344,7 +346,9 @@ async function migrateLegacyBoardStorage() {
   return boardMigrationPromise;
 }
 
-async function hydratePersistedSnapshot(snapshot) {
+async function hydratePersistedSnapshot(
+  snapshot: SnapshotReference
+): Promise<BoardSnapshot & { ok: boolean }> {
   if (!hasPersistedSnapshot(snapshot)) {
     return {
       ok: true,
@@ -357,7 +361,7 @@ async function hydratePersistedSnapshot(snapshot) {
     snapshot.generation,
     BOARD_HISTORY_SECTION,
     snapshot.chunkCount,
-    snapshot.commandCount,
+    snapshot.commandCount
   );
   if (!commands.ok) {
     return {
@@ -371,7 +375,7 @@ async function hydratePersistedSnapshot(snapshot) {
     snapshot.generation,
     BOARD_REDO_SECTION,
     snapshot.redoChunkCount,
-    snapshot.redoCount,
+    snapshot.redoCount
   );
   if (!redoCommands.ok) {
     return {
@@ -388,7 +392,7 @@ async function hydratePersistedSnapshot(snapshot) {
   };
 }
 
-async function hydrateStoredBoardDrawing(document) {
+async function hydrateStoredBoardDrawing(document: unknown): Promise<BoardDrawing | null> {
   const normalized = createStoredDocument(document);
 
   if (!hasPersistedSnapshot(createSnapshotReference(normalized))) {
@@ -421,13 +425,13 @@ async function hydrateStoredBoardDrawing(document) {
   return null;
 }
 
-export async function loadBoardDrawing() {
+export async function loadBoardDrawing(): Promise<BoardDrawing> {
   await migrateLegacyBoardStorage();
 
   const database = await openBoardDatabase();
   if (database) {
     const indexedValue = await boardStore.getValue(BOARD_DRAWING_KEY);
-    if (indexedValue !== undefined) {
+    if (isRecord(indexedValue)) {
       const hydrated = await hydrateStoredBoardDrawing(indexedValue);
       if (hydrated) return hydrated;
     }
@@ -436,8 +440,9 @@ export async function loadBoardDrawing() {
   return toBoardDrawing(loadJson(BOARD_DRAWING_KEY, createEmptyBoardDrawing()));
 }
 
-export function saveBoardDrawing(document) {
-  pendingSaveDocument = cloneJson(toBoardDrawing(document));
+export function saveBoardDrawing(document: BoardSnapshot): Promise<void> {
+  // Normalization creates an independent snapshot before the asynchronous save loop.
+  pendingSaveDocument = toBoardDrawing(document);
   saveLoopPromise = (saveLoopPromise || Promise.resolve()).then(async () => {
     while (pendingSaveDocument) {
       const nextDocument = pendingSaveDocument;

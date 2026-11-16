@@ -1,56 +1,66 @@
-import { loadText, saveText } from './shared/storage.js';
+import { loadText, saveText } from './shared/storage.ts';
 
 /**
  * VatioBoard i18n - Minimal internationalization
  * Supports: English (en), Spanish (es)
  */
 
+export type Language = 'en' | 'es';
+
+const english = {
+  // UI Controls
+  pen: 'Pen',
+  eraser: 'Eraser',
+  undo: 'Undo',
+  redo: 'Redo',
+  size: 'Size',
+  color: 'Color',
+  hex: 'Hex',
+  close: 'Close',
+  clear: 'Clear',
+  savePng: 'Save PNG',
+
+  // Aria labels
+  presetColors: 'Preset colors',
+  moreColors: 'More colors',
+  changeLanguage: 'Change language',
+
+  // Color names
+  graphite: 'Graphite',
+  slate: 'Slate',
+  blue: 'Blue',
+  green: 'Green',
+  amber: 'Amber',
+  rose: 'Rose',
+
+  // Status messages
+  ready: 'Ready',
+  draftUpdated: 'Draft updated',
+  cleared: 'Cleared',
+  colorUpdated: 'Color updated',
+  themeUpdated: 'Theme updated',
+  preparingPng: 'Preparing PNG...',
+  savePngFailed: 'Could not prepare the PNG',
+  downloadedPng: 'Downloaded PNG',
+
+  // File
+  drawingFilename: 'drawing.png',
+
+  // Header/Brand
+  brand: 'ZONI® Board',
+  tagline: 'Simple local drawing board by ZONI',
+  localOnly: 'Saved on this device only',
+};
+
+export type TranslationKey = keyof typeof english;
+type TranslationDictionary = Record<TranslationKey, string>;
+
+function isTranslationKey(key: string): key is TranslationKey {
+  return Object.prototype.hasOwnProperty.call(english, key);
+}
+
 const translations = {
-  en: {
-    // UI Controls
-    pen: 'Pen',
-    eraser: 'Eraser',
-    undo: 'Undo',
-    redo: 'Redo',
-    size: 'Size',
-    color: 'Color',
-    hex: 'Hex',
-    close: 'Close',
-    clear: 'Clear',
-    savePng: 'Save PNG',
-
-    // Aria labels
-    presetColors: 'Preset colors',
-    moreColors: 'More colors',
-    changeLanguage: 'Change language',
-
-    // Color names
-    graphite: 'Graphite',
-    slate: 'Slate',
-    blue: 'Blue',
-    green: 'Green',
-    amber: 'Amber',
-    rose: 'Rose',
-
-    // Status messages
-    ready: 'Ready',
-    draftUpdated: 'Draft updated',
-    cleared: 'Cleared',
-    colorUpdated: 'Color updated',
-    themeUpdated: 'Theme updated',
-    preparingPng: 'Preparing PNG...',
-    savePngFailed: 'Could not prepare the PNG',
-    downloadedPng: 'Downloaded PNG',
-
-    // File
-    drawingFilename: 'drawing.png',
-
-    // Header/Brand
-    brand: 'ZONI® Board',
-    tagline: 'Simple local drawing board by ZONI',
-    localOnly: 'Saved on this device only',
-  },
-
+  en: english,
   es: {
     // UI Controls
     pen: 'Lápiz',
@@ -95,24 +105,33 @@ const translations = {
     tagline: 'Pizarra local simple de ZONI',
     localOnly: 'Guardado solo en este dispositivo',
   },
-};
+} satisfies Record<Language, TranslationDictionary>;
 
 const LANG_KEY = 'vatio_board_lang';
 
 const storedLang = loadText(LANG_KEY, null);
-const detectedLang =
-  storedLang || window.__lang || (navigator.language?.startsWith('es') ? 'es' : 'en');
+function isLanguage(value: unknown): value is Language {
+  return value === 'en' || value === 'es';
+}
+
+const detectedLang: Language = isLanguage(storedLang)
+  ? storedLang
+  : isLanguage(window.__lang)
+    ? window.__lang
+    : navigator.language?.startsWith('es')
+      ? 'es'
+      : 'en';
 
 // Current language (can be changed later for manual switching)
-let currentLang = detectedLang;
+let currentLang: Language = detectedLang;
 
 /**
  * Get translation by key
  * @param {string} key - Translation key
  * @returns {string} - Translated string or key if not found
  */
-export function t(key, params) {
-  const text = translations[currentLang]?.[key] ?? translations.en[key] ?? key;
+export function t(key: string, params?: Record<string, string | number>): string {
+  const text = isTranslationKey(key) ? (translations[currentLang][key] ?? english[key]) : key;
   if (!params) return text;
 
   return text.replace(/\{(\w+)\}/g, (match, token) => {
@@ -127,7 +146,7 @@ export function t(key, params) {
  * Get current language
  * @returns {string} - Current language code ('en' or 'es')
  */
-export function getLang() {
+export function getLang(): Language {
   return currentLang;
 }
 
@@ -135,8 +154,8 @@ export function getLang() {
  * Set language manually and persist to localStorage
  * @param {string} lang - Language code ('en' or 'es')
  */
-export function setLang(lang) {
-  if (translations[lang]) {
+export function setLang(lang: string): void {
+  if (isLanguage(lang)) {
     currentLang = lang;
     saveText(LANG_KEY, lang);
     document.documentElement.lang = lang;
@@ -147,7 +166,7 @@ export function setLang(lang) {
  * Toggle between 'en' and 'es', persist, and re-apply translations
  * @returns {string} - New language code
  */
-export function toggleLang() {
+export function toggleLang(): Language {
   const newLang = currentLang === 'en' ? 'es' : 'en';
   setLang(newLang);
   applyTranslations();
@@ -158,25 +177,25 @@ export function toggleLang() {
 /**
  * Apply translations to DOM elements with data-i18n attribute
  */
-export function applyTranslations() {
+export function applyTranslations(): void {
   document.querySelectorAll('[data-i18n]').forEach((el) => {
     const key = el.getAttribute('data-i18n');
-    el.textContent = t(key);
+    if (key !== null) el.textContent = t(key);
   });
 
   document.querySelectorAll('[data-i18n-aria]').forEach((el) => {
     const key = el.getAttribute('data-i18n-aria');
-    el.setAttribute('aria-label', t(key));
+    if (key !== null) el.setAttribute('aria-label', t(key));
   });
 
   document.querySelectorAll('[data-i18n-title]').forEach((el) => {
     const key = el.getAttribute('data-i18n-title');
-    el.setAttribute('title', t(key));
+    if (key !== null) el.setAttribute('title', t(key));
   });
 
   document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
     const key = el.getAttribute('data-i18n-placeholder');
-    el.setAttribute('placeholder', t(key));
+    if (key !== null) el.setAttribute('placeholder', t(key));
   });
 }
 

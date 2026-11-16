@@ -10,7 +10,7 @@ import {
   saveJson,
   saveNumber,
   saveText,
-} from '../../src/shared/storage.js';
+} from '../../src/shared/storage.ts';
 
 describe('shared storage helper', () => {
   beforeEach(() => {

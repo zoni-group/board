@@ -1,15 +1,21 @@
-export function hasIndexedDbSupport() {
-  return typeof indexedDB !== "undefined" && typeof indexedDB.open === "function";
+export function hasIndexedDbSupport(): boolean {
+  return typeof indexedDB !== 'undefined' && typeof indexedDB.open === 'function';
+}
+
+interface IndexedStoreOptions {
+  dbName: string;
+  dbVersion?: number;
+  storeName: string;
 }
 
 export function createIndexedJsonKeyValueStore({
   dbName,
   dbVersion = 1,
   storeName,
-}) {
-  let dbPromise = null;
+}: IndexedStoreOptions) {
+  let dbPromise: Promise<IDBDatabase | null> | null = null;
 
-  async function openDatabase() {
+  async function openDatabase(): Promise<IDBDatabase | null> {
     if (!hasIndexedDbSupport()) {
       return null;
     }
@@ -49,13 +55,13 @@ export function createIndexedJsonKeyValueStore({
     return dbPromise;
   }
 
-  async function getValue(key) {
+  async function getValue(key: string): Promise<unknown> {
     const database = await openDatabase();
     if (!database) return undefined;
 
     try {
-      return await new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, "readonly");
+      return await new Promise<unknown>((resolve, reject) => {
+        const transaction = database.transaction(storeName, 'readonly');
         const request = transaction.objectStore(storeName).get(key);
         request.onsuccess = () => resolve(request.result ?? undefined);
         request.onerror = () => reject(request.error);
@@ -66,13 +72,13 @@ export function createIndexedJsonKeyValueStore({
     }
   }
 
-  async function setValue(key, value) {
+  async function setValue(key: string, value: unknown): Promise<boolean> {
     const database = await openDatabase();
     if (!database) return false;
 
     try {
-      await new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, "readwrite");
+      await new Promise<void>((resolve, reject) => {
+        const transaction = database.transaction(storeName, 'readwrite');
         const request = transaction.objectStore(storeName).put(value, key);
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
@@ -84,13 +90,13 @@ export function createIndexedJsonKeyValueStore({
     }
   }
 
-  async function deleteValue(key) {
+  async function deleteValue(key: string): Promise<boolean> {
     const database = await openDatabase();
     if (!database) return false;
 
     try {
-      await new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, "readwrite");
+      await new Promise<void>((resolve, reject) => {
+        const transaction = database.transaction(storeName, 'readwrite');
         const request = transaction.objectStore(storeName).delete(key);
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);

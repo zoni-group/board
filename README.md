@@ -9,7 +9,7 @@ It is optimized for touch screens, with pen/eraser tools, brush size control, co
 
 ## App
 
-`index.html` loads the board from [`src/board/board.js`](src/board/board.js).
+`index.html` loads the board from [`src/board/board.ts`](src/board/board.ts).
 
 What it does:
 
@@ -22,7 +22,7 @@ What it does:
 ## Stack
 
 - Vite 7 single-page build
-- Vanilla JavaScript ES modules
+- Vanilla TypeScript ES modules with strict type checking
 - LESS for styling
 - `@jaames/iro` for the color picker
 - Vitest + jsdom for unit and smoke tests
@@ -39,13 +39,14 @@ What it does:
 │  ├─ board/
 │  ├─ shared/
 │  ├─ styles/
-│  ├─ i18n.js
-│  └─ icons.js
+│  ├─ i18n.ts
+│  └─ icons.ts
 ├─ test/
 │  ├─ helpers/
 │  ├─ setup/
 │  ├─ smoke/
 │  └─ unit/
+├─ tsconfig.json
 ├─ vite.config.js
 └─ vitest.config.js
 ```
@@ -76,7 +77,8 @@ Local development runs at:
 ## Scripts
 
 - `npm run dev`: runs Vite locally
-- `npm run build`: creates a production build
+- `npm run typecheck`: checks all application TypeScript without emitting files
+- `npm run build`: checks types, then creates a production build
 - `npm run preview`: serves the built app locally
 - `npm run lint`: runs ESLint
 - `npm run lint:fix`: runs ESLint with autofix
@@ -86,6 +88,21 @@ Local development runs at:
 - `npm run test:watch`: runs Vitest in watch mode
 - `npm run test:unit`: runs unit tests under `test/unit`
 - `npm run test:smoke`: runs smoke tests under `test/smoke`
+
+## TypeScript Foundation
+
+Application modules use strict TypeScript; tests and build configs remain JavaScript.
+Vite bundles the application, while `npm run typecheck` checks types. Production builds,
+including CI and deployment, run the type check before bundling.
+
+`src/board/model.ts` defines the shared drawing commands, snapshots, validation, and cloning.
+Storage reads are treated as unknown until normalized. Existing version 1 drawings, storage
+keys, chunking, and recovery behavior remain compatible.
+
+New command types must be handled explicitly in cloning and rendering. Keep drawing points
+in board coordinates (CSS pixels): future zoom should transform input and rendering rather
+than rewrite saved points. TypeScript dependencies are development-only; drawing and storage
+remain local to the browser.
 
 ## Persistence Model
 
