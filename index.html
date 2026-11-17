@@ -326,26 +326,7 @@
             >
               <span class="btn-icon" aria-hidden="true"></span>
             </button>
-            <button
-              id="clear"
-              type="button"
-              class="board-action-btn board-action-btn-clear"
-              data-i18n-aria="clear"
-              data-i18n-title="clear"
-              aria-label="Clear"
-              title="Clear"
-            >
-              <span class="btn-icon" aria-hidden="true"></span>
-            </button>
-            <button
-              id="save"
-              type="button"
-              class="board-action-btn board-action-btn-save"
-              data-i18n-aria="savePng"
-              data-i18n-title="savePng"
-              aria-label="Save PNG"
-              title="Save PNG"
-            >
+            <button id="boards" type="button" class="board-action-btn" aria-expanded="false" aria-haspopup="dialog" aria-label="Boards" title="Boards" disabled>
               <span class="btn-icon" aria-hidden="true"></span>
             </button>
           </div>
@@ -378,12 +359,24 @@
           <div class="right-stack board-canvas-meta" aria-label="Status and attribution">
             <span id="status" class="status" data-i18n="ready">Ready</span>
             <span class="attribution" aria-label="Local save notice">
-              <span data-i18n="localOnly">Saved on this device only</span>
+              <span id="boardName"></span><span aria-hidden="true"> · </span><span data-i18n="localOnly">Saved on this device only</span>
             </span>
           </div>
         </div>
       </div>
     </main>
+    <div id="boardMenu" class="board-menu" role="dialog" aria-label="Boards" data-i18n-aria="boards" hidden>
+      <strong data-board-name></strong>
+      <button id="newBoard" type="button" data-i18n="newBoard">New board</button>
+      <button id="openBoards" type="button" data-i18n="openBoards">Open boards…</button>
+      <hr />
+      <button id="exportBoard" type="button" data-i18n="exportBoard">Export board</button>
+      <button id="exportAllBoards" type="button" data-i18n="exportAllBoards">Export all boards</button>
+      <button id="importBoards" type="button" data-i18n="importBoards">Import boards…</button>
+      <button id="save" type="button" data-i18n="savePng">Save PNG</button>
+      <hr />
+      <button id="clear" type="button" class="destructive" data-i18n="clearDrawing">Clear drawing</button>
+    </div>
     <div id="colorPopup" class="color-popup" hidden>
       <div class="color-popup-card">
         <div class="color-popup-body">

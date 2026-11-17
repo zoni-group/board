@@ -17,12 +17,13 @@ import {
 } from './viewport.ts';
 import type { BoardViewport } from './viewport.ts';
 import { panelArea } from './screen-layout.ts';
-import { clearTextDraft, loadTextDraft, recoverTextDraft, saveTextDraft } from './text-draft.ts';
+import { recoverTextDraft } from './text-draft.ts';
 import type { TextDraft } from './text-draft.ts';
 import type { TextEditorSession } from './text-editor.ts';
 import type { SelectionController } from './selection.ts';
 
 interface TextToolOptions {
+  drafts(): TextDraftStore;
   canvas: HTMLCanvasElement;
   selection: SelectionController;
   selecting(): boolean;
@@ -37,6 +38,11 @@ interface TextToolOptions {
   historyChanged(): void;
   ink(): string;
   status(message: string): void;
+}
+export interface TextDraftStore {
+  load(): TextDraft | null;
+  save(draft: TextDraft): void;
+  clear(token: string): void;
 }
 let editorModule: Promise<typeof import('./text-editor.ts')> | undefined;
 function loadEditor() {
@@ -67,6 +73,7 @@ export function createTextTool(options: TextToolOptions) {
     draft: TextDraft | null = null;
   let timer: number | undefined,
     composing = false;
+  let drafts: TextDraftStore;
   const erased = new Set<string>();
 
   function labels() {
@@ -116,7 +123,7 @@ export function createTextTool(options: TextToolOptions) {
     if (!session || !draft) return;
     draft.object = session.read();
     if (JSON.stringify(draft.object) === JSON.stringify(draft.original)) return;
-    if (!saveTextDraft(draft)) options.status(t('textSaveFailed'));
+    drafts.save(draft);
   }
   function positionEditor() {
     if (!session || !draft) return;
@@ -173,30 +180,31 @@ export function createTextTool(options: TextToolOptions) {
     }
     flushDraft();
     const current = draft;
+    const store = drafts;
     const object = session.read();
     draft = null;
     closeEditor();
     if (isEmptyText(object) && !current.original) {
-      clearTextDraft(current.token);
+      store.clear(current.token);
       options.selection.clear();
       paint();
       return true;
     }
     if (JSON.stringify(object) === JSON.stringify(current.original)) {
       void options.persist().then((ok) => {
-        if (ok) clearTextDraft(current.token);
+        if (ok) store.clear(current.token);
         else options.status(t('textSaveFailed'));
       });
       options.selection.select({ kind: 'text', id: object.id });
       paint();
       return true;
     }
-    saveTextDraft({ ...current, object, committing: true });
+    store.save({ ...current, object, committing: true });
     const command: BoardCommand = isEmptyText(object)
       ? { type: 'text-delete', ids: [object.id] }
       : { type: 'text-set', object };
     void options.commit(command).then((ok) => {
-      if (ok) clearTextDraft(current.token);
+      if (ok) store.clear(current.token);
       else options.status(t('textSaveFailed'));
     });
     options.selection.select(isEmptyText(object) ? null : { kind: 'text', id: object.id });
@@ -206,17 +214,18 @@ export function createTextTool(options: TextToolOptions) {
   function cancelEdit() {
     if (composing) return;
     const current = draft;
+    const store = drafts;
     if (current?.original) {
       const original = current.original;
       void options.persist().then((ok) => {
-        if (ok) clearTextDraft(current.token);
+        if (ok) store.clear(current.token);
         else {
-          if (loadTextDraft()?.token === current.token)
-            saveTextDraft({ ...current, object: original, original: null, committing: true });
+          if (store.load()?.token === current.token)
+            store.save({ ...current, object: original, original: null, committing: true });
           options.status(t('textSaveFailed'));
         }
       });
-    } else if (current) clearTextDraft(current.token);
+    } else if (current) store.clear(current.token);
     draft = null;
     closeEditor();
     paint();
@@ -228,10 +237,11 @@ export function createTextTool(options: TextToolOptions) {
     token: string = crypto.randomUUID()
   ) {
     if (!finish()) return;
+    drafts = options.drafts();
     const ticket = ++generation;
     loading = true;
     options.selection.select(original ? { kind: 'text', id: object.id } : null);
-    const previousDraft = loadTextDraft();
+    const previousDraft = drafts.load();
     if (
       original &&
       previousDraft?.committing &&
@@ -385,6 +395,13 @@ export function createTextTool(options: TextToolOptions) {
       positionEditor();
     },
     finish,
+    reset() {
+      draft = null;
+      closeEditor();
+      erased.clear();
+      active = false;
+      canvas.classList.remove('text-tool-active');
+    },
     isEditing: () => Boolean(session || loading),
     isDragging: () => options.selection.isDragging(),
     canUndo: () => session?.canUndo() ?? false,
@@ -434,7 +451,10 @@ export function createTextTool(options: TextToolOptions) {
       paint();
     },
     recover() {
-      const recovered = recoverTextDraft(options.getObjects(), options.getHistory());
+      drafts = options.drafts();
+      const previous = drafts.load();
+      const recovered = recoverTextDraft(previous, options.getObjects(), options.getHistory());
+      if (!recovered && previous) drafts.clear(previous.token);
       if (!recovered) return false;
       const bounds = cachedTextLayout(context, recovered.object).bounds;
       if (!boundsIntersect(bounds, visibleBounds(options.getViewport(), size())))

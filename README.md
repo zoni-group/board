@@ -18,7 +18,7 @@ What it does:
 - editable, movable text blocks with selected-word formatting
 - images, formatted tables, and video cards through the Text button's **Add object** picker
 - undo, redo, clear, and PNG download
-- local autosave of drawing history using IndexedDB with `localStorage` fallback
+- multiple named boards with local autosave in IndexedDB and portable `.zoniboard` backups
 - English/Spanish language toggle
 
 ## Stack
@@ -102,8 +102,9 @@ Vite bundles the application, while `npm run typecheck` checks types. Production
 including CI and deployment, run the type check before bundling.
 
 `src/board/model.ts` defines the shared drawing commands, snapshots, validation, and cloning.
-Storage reads are treated as unknown until normalized. Version 1–4 drawings migrate to isolated
-version 5 metadata and chunks; the original records remain intact for older tabs and rollback.
+Storage reads are treated as unknown until validated against the single current format.
+The initial library uses version 1; prototype storage is ignored. There are no legacy readers,
+migrations, or saved-generation chains.
 Each pen stroke receives a stable identity, including strokes in redo history. Small edit commands
 record translation and style changes without duplicating or rewriting the original points.
 
@@ -144,8 +145,7 @@ undo/redo, Fit and whole-board PNG export apply to all object edits. Selection o
 are temporary and never saved or exported.
 
 Selection supports one object at a time. Grouping, box selection, pen/text geometry resizing,
-rotation and new fill/opacity attributes are outside this version's scope. No runtime dependency
-or remote storage is added.
+rotation and new fill/opacity attributes are outside this version's scope. No remote storage is added.
 
 ## Images, Tables, and Videos
 
@@ -168,13 +168,11 @@ opening it always shows all four options.
   player stops playback. Hosted videos require a connection; provider requests start only when
   the player is opened. No remote thumbnails or metadata are fetched during insertion.
 
-Images and videos use a separate local IndexedDB asset store. Binary data never enters command
-history or `localStorage`; history contains asset IDs and object metadata. Asset saving must
-complete before insertion. If browser storage is unavailable or full, the import reports the
-failure and leaves the board intact. Existing drawings, tables, and hosted video cards can still
-use the regular history fallback. Deleted/Cleared assets are retained for Undo, Redo, and saved
-recovery generations; automatic asset pruning is deferred. Clearing browser site data removes
-locally saved media along with the board.
+Images and videos live in the library's IndexedDB asset store and belong to their board. Binary
+media never enters command history or `localStorage`; commands contain asset IDs and metadata.
+Asset saving must complete before insertion. Imports report unavailable/full storage without
+adding broken objects. Clear retains media for Undo/Redo; deleting a board removes its owned
+media. Clearing browser site data removes the entire locally saved library.
 
 Select moves and deletes all three object types. Images/video cards have corner resize handles;
 table dimensions are adjusted in its editor. Erasing annotations preserves underlying media and
@@ -272,13 +270,53 @@ uniformly above 4096 pixels per side or 8 megapixels; the status message reports
 The image keeps the board background, erasing, shapes, text, and highlighting. Conservative stroke bounds
 can leave whitespace after pixel erasing. An empty drawing exports a viewport-sized blank image.
 
+## Boards and Portable Backups
+
+**Boards** replaces the separate Clear and Save PNG toolbar buttons. The primary toolbar has
+seven buttons; navigation remains separate and visible.
+
+- **New board** opens an automatically named blank board. **Open boards…** lists saved boards,
+  most recently updated first. Open a board by name, rename it inline, or delete it after confirming
+  its name. Deleting the last board creates a fresh blank one.
+- The last active board reopens on startup. Each board keeps its own history, viewport, and text
+  draft. Switching finishes text/table edits, cancels unfinished gestures/imports, and saves before
+  replacing the open board. If saving fails, switching stops and the current work remains available.
+- **Clear drawing** is undoable. **Delete board** removes its history and media permanently after
+  confirmation. These are separate operations.
+- **Export board** downloads an editable `.zoniboard` file. **Export all boards** downloads a single
+  library backup. Both include full Undo/Redo history, media referenced by earlier edits, and camera
+  positions. Hosted videos remain provider links; no remote media is downloaded.
+- **Import boards…** adds independent copies with new IDs, retaining the originals. Duplicate names
+  receive numbered suffixes. After importing, the exported active board opens.
+- **Save PNG** exports the current board as an image named after the board. Editable exports keep
+  objects and history; PNGs are flattened images.
+
+Transfer a `.zoniboard` file to another computer/browser and choose Import boards there. Exports
+are snapshots: later edits continue saving in the browser, so export again to update the file.
+Import/export shows progress and can be cancelled. Invalid files, missing media, unsupported
+versions, and storage failures leave existing boards intact. Unsaved in-memory work can still
+be exported when local saving fails. Concurrent edits to the same board in another tab are
+rejected; export unsaved work before reloading that tab.
+
+The only new runtime package is lazy-loaded `fflate` for ZIP import/export. Version 1 archives use
+uncompressed entries, binary assets, and SHA-256 payload checksums. They accept only the current
+ZONI Board format, with a 32 MiB manifest limit and the classic ZIP size limit (under 4 GiB).
+Large libraries can be exported one board at a time.
+
 ## Persistence Model
 
-- board drawings are stored in IndexedDB when available, with `localStorage` fallback/migration helpers
-- color, language, and related UI preferences use browser storage
-- viewport position and zoom use a separate versioned local preference; drawing schema and coordinates remain unchanged
-- unfinished text drafts use a separate localStorage recovery record; failed board saves retain recovery data
-- IndexedDB saves report success after transaction completion; localStorage quota errors report failure
+- One database, `zoni-board-library` version 1, has `boards`, `assets`, and `meta` stores.
+- Each board document stores its metadata, drawing/redo commands, viewport, and recoverable text
+  draft. The catalog lists board summaries without loading complete drawings.
+- Atomic transactions update board documents and catalog entries together; a failed transaction
+  preserves the last successful save. Imports publish boards and assets in one transaction.
+- Each board has its own save queue and revision; stale or deleted-board writes are rejected.
+- Media ownership makes deleting a board independent of other boards. Imported copies get their
+  own media identities. Unreferenced media retained by an editing session is removed with its board.
+- IndexedDB is required for durable board storage. `localStorage` holds only shared UI preferences
+  such as language and ink color; there is no drawing fallback or compatibility layer.
+- Prototype single-board databases and keys are ignored. Only the current library/archive format
+  is supported; older or newer format versions are not converted.
 
 ## Automation
 

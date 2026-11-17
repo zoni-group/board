@@ -22,6 +22,7 @@
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.65.1",
     "eslint": "^10.1.0",
+    "fake-indexeddb": "6.2.8",
     "globals": "^17.4.0",
     "jsdom": "^29.0.1",
     "less": "^4.5.1",
@@ -33,7 +34,8 @@
   },
   "dependencies": {
     "@jaames/iro": "^5.5.2",
-    "@notectl/core": "2.4.2"
+    "@notectl/core": "2.4.2",
+    "fflate": "0.8.3"
   },
   "engines": {
     "node": ">=24"

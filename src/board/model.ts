@@ -1,4 +1,5 @@
-export const BOARD_SCHEMA_VERSION = 5;
+export const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+export const VIDEO_TYPES = ['video/mp4', 'video/webm'];
 
 /** Board units: one CSS pixel at 100% zoom, independent of device pixel ratio. */
 export interface Point {
@@ -146,11 +147,6 @@ export type BoardCommand =
 export interface BoardSnapshot {
   commands: BoardCommand[];
   redoCommands: BoardCommand[];
-}
-
-export interface BoardDrawing extends BoardSnapshot {
-  version: typeof BOARD_SCHEMA_VERSION;
-  updatedAtMs: number;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -356,7 +352,7 @@ export function cloneContentObject<T extends ContentObject>(object: T): T {
   return structuredClone(object);
 }
 
-export function normalizeCommand(command: unknown, legacyStrokeId?: string): BoardCommand | null {
+export function normalizeCommand(command: unknown): BoardCommand | null {
   if (!isRecord(command)) return null;
   if (command.type === 'content-set') {
     const object = normalizeContentObject(command.object);
@@ -413,19 +409,26 @@ export function normalizeCommand(command: unknown, legacyStrokeId?: string): Boa
   }
   if (command.type !== 'stroke') return null;
 
-  const points = Array.isArray(command.points)
-    ? command.points.map(normalizePoint).filter((point) => point !== null)
-    : [];
-  if (points.length === 0) return null;
-
+  if (command.tool !== 'pen' && command.tool !== 'eraser') return null;
+  if (
+    !isFiniteNumber(command.size) ||
+    command.size <= 0 ||
+    command.size > 1000 ||
+    typeof command.inkRaw !== 'string' ||
+    !/^#[\da-f]{6}$/i.test(command.inkRaw)
+  )
+    return null;
+  if (!Array.isArray(command.points) || !command.points.length) return null;
+  const points = command.points.map(normalizePoint);
+  if (points.some((point) => point === null)) return null;
   const base = {
     type: 'stroke',
-    size: isFiniteNumber(command.size) && command.size > 0 ? command.size : 6,
-    inkRaw: typeof command.inkRaw === 'string' ? command.inkRaw : '#111827',
-    points,
+    size: command.size,
+    inkRaw: command.inkRaw,
+    points: points as Point[],
   } as const;
   if (command.tool !== 'eraser') {
-    const id = typeof command.id === 'string' && command.id ? command.id : legacyStrokeId;
+    const id = typeof command.id === 'string' && command.id ? command.id : null;
     return id ? { ...base, tool: 'pen', id } : null;
   }
   return {
@@ -440,13 +443,9 @@ export function normalizeCommand(command: unknown, legacyStrokeId?: string): Boa
   };
 }
 
-export function normalizeCommands(commands: unknown, legacyPrefix?: string): BoardCommand[] {
+export function normalizeCommands(commands: unknown): BoardCommand[] {
   if (!Array.isArray(commands)) return [];
-  return commands
-    .map((command, i) =>
-      normalizeCommand(command, legacyPrefix === undefined ? undefined : `${legacyPrefix}-${i}`)
-    )
-    .filter((command) => command !== null);
+  return commands.map((command) => normalizeCommand(command)).filter((command) => command !== null);
 }
 
 export function clonePoint(point: Point): Point {

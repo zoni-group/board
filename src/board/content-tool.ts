@@ -32,6 +32,7 @@ interface ContentToolOptions {
   button: HTMLButtonElement;
   selection: SelectionController;
   ready(): boolean;
+  boardId(): string;
   objects(): ContentObject[];
   view(): BoardViewport;
   prepare(): boolean;
@@ -211,11 +212,12 @@ export function createContentTool(options: ContentToolOptions) {
     label(area, 'importingMedia');
     loading = true;
     const ticket = generation;
+    const boardId = options.boardId();
     let id: string | null = null;
     try {
       const asset = await (kind === 'image' ? importImage(file) : importVideo(file));
       if (generation !== ticket) return;
-      id = await saveAsset(asset);
+      id = await saveAsset(boardId, asset);
       if (generation !== ticket) {
         await discardAsset(id);
         return;

@@ -1,6 +1,5 @@
 import { isFiniteNumber, isRecord, normalizePoint } from './model.ts';
 import type { Point } from './model.ts';
-import { loadJson, saveJson } from '../shared/storage.ts';
 
 export interface BoardSize {
   width: number;
@@ -17,7 +16,6 @@ export interface BoardViewport {
 
 export const MIN_ZOOM = 0.5;
 export const MAX_ZOOM = 4;
-export const VIEWPORT_KEY = 'vatio_board_viewport_v1';
 
 export function initialViewport(size: BoardSize): BoardViewport {
   return { center: { x: size.width / 2, y: size.height / 2 }, zoom: 1 };
@@ -110,15 +108,10 @@ export function applyViewport(
     dpr * (size.height / 2 - view.center.y * view.zoom)
   );
 }
-export function loadViewport(): BoardViewport | null {
-  const value = loadJson(VIEWPORT_KEY);
-  if (!isRecord(value) || value.version !== 1 || !isFiniteNumber(value.zoom) || value.zoom <= 0)
-    return null;
+export function normalizeViewport(value: unknown): BoardViewport | null {
+  if (!isRecord(value) || !isFiniteNumber(value.zoom) || value.zoom <= 0) return null;
   const center = normalizePoint(value.center);
   return center ? { center, zoom: clampZoom(value.zoom) } : null;
-}
-export function saveViewport(view: BoardViewport): boolean {
-  return saveJson(VIEWPORT_KEY, { version: 1, center: view.center, zoom: view.zoom });
 }
 
 export function exportGeometry(bounds: BoardBounds | null, size: BoardSize) {

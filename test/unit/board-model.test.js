@@ -15,32 +15,24 @@ describe('board command validation', () => {
     expect(normalizeCommand(value)).toBeNull();
   });
 
-  it('keeps finite board coordinates and applies the existing stroke defaults', () => {
-    expect(
-      normalizeCommand({
-        type: 'stroke',
-        id: 'pen-1',
-        tool: 'unsupported',
-        size: Infinity,
-        inkRaw: null,
-        points: [
-          null,
-          { x: '1', y: 2 },
-          { x: NaN, y: 2 },
-          { x: 1, y: Infinity },
-          { x: -2.5, y: 3 },
-        ],
-      })
-    ).toEqual({
+  it('requires valid current stroke fields and preserves finite coordinates', () => {
+    const stroke = {
       type: 'stroke',
       id: 'pen-1',
       tool: 'pen',
       size: 6,
       inkRaw: '#111827',
       points: [{ x: -2.5, y: 3 }],
-    });
+    };
+    expect(normalizeCommand(stroke)).toEqual(stroke);
+    for (const bad of [
+      { ...stroke, tool: 'unsupported' },
+      { ...stroke, size: Infinity },
+      { ...stroke, inkRaw: null },
+      { ...stroke, points: [{ x: 2, y: 3 }, null] },
+    ])
+      expect(normalizeCommand(bad)).toBeNull();
   });
-
   it('preserves erasers and clear commands while dropping invalid history entries', () => {
     const eraser = {
       type: 'stroke',

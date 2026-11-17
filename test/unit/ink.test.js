@@ -22,14 +22,11 @@ const erase = (x = 50) => ({
 });
 
 describe('editable ink', () => {
-  it('requires an identity in v4, and assigns deterministic IDs only during legacy normalization', () => {
-    const old = { ...pen() };
-    delete old.id;
-    expect(normalizeCommand(old)).toBeNull();
-    const first = normalizeCommands([old, old], 'legacy-history');
-    expect(first.map((c) => c.id)).toEqual(['legacy-history-0', 'legacy-history-1']);
-    expect(normalizeCommands([old, old], 'legacy-history')).toEqual(first);
-    expect(old.id).toBeUndefined();
+  it('requires a stable stroke identity in the current format', () => {
+    const invalid = { ...pen() };
+    delete invalid.id;
+    expect(normalizeCommand(invalid)).toBeNull();
+    expect(normalizeCommands([invalid, pen()])).toEqual([pen()]);
   });
   it('keeps geometry immutable and moves existing gaps with the stroke', () => {
     const commands = [

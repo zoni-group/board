@@ -1,3 +1,4 @@
+import { boardAction } from '../helpers/board-menu.js';
 import { chooseObject } from '../helpers/object-picker.js';
 import { test, expect } from '@playwright/test';
 
@@ -14,9 +15,9 @@ async function startText(page, text = 'Hello world') {
 }
 async function objects(page) {
   return page.evaluate(async () => {
-    const { loadBoardDrawing } = await import('/src/board/storage.ts');
+    const { activeBoard } = await import('/test/helpers/board-browser.js');
     const { resolveTextObjects } = await import('/src/board/text-scene.ts');
-    return resolveTextObjects((await loadBoardDrawing()).commands);
+    return resolveTextObjects((await activeBoard()).commands);
   });
 }
 async function expectEditorSelection(input, anchor, head = anchor) {
@@ -56,7 +57,10 @@ for (const [language, placeholder] of [
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 500 });
-    await page.evaluate((language) => localStorage.setItem('vatio_board_lang', language), language);
+    await page.evaluate(
+      async (language) => localStorage.setItem('vatio_board_lang', language),
+      language
+    );
     await page.reload();
     await expect(page.locator('#text')).toBeEnabled();
     await chooseObject(page, 'text');
@@ -191,7 +195,7 @@ test('renders multiline highlights in PNG exports and preserves them after reloa
     }))
   );
   const downloaded = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Save PNG', exact: true }).click();
+  await boardAction(page, 'save');
   const download = await downloaded;
   const chunks = [];
   for await (const chunk of await download.createReadStream()) chunks.push(chunk);
@@ -262,8 +266,9 @@ test('formats selected words, commits one board edit, and exports both canvas la
   await page.getByRole('button', { name: 'Redo', exact: true }).click();
   await expect.poll(async () => (await objects(page)).length).toBe(1);
   const downloaded = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Save PNG', exact: true }).click();
-  expect((await downloaded).suggestedFilename()).toBe('drawing.png');
+  await boardAction(page, 'save');
+  // WebKit may replace filename spaces with underscores when starting the download.
+  expect((await downloaded).suggestedFilename()).toMatch(/^Board[ _]1\.png$/);
   expect(
     await page.locator('#textLayer').evaluate((canvas) =>
       canvas
@@ -283,9 +288,11 @@ test('recovers unfinished text, edits it, moves it, and erases the whole block',
   await highlight(page, 1);
   await expect
     .poll(() =>
-      page.evaluate(() =>
-        JSON.parse(localStorage.getItem('vatio_board_text_draft_v1'))
-          ?.object.paragraphs[0].runs.map((run) => run.text)
+      page.evaluate(async () =>
+        (
+          await (await import('/test/helpers/board-browser.js')).activeBoard()
+        ).draft?.object.paragraphs[0].runs
+          .map((run) => run.text)
           .join('')
       )
     )
@@ -293,9 +300,9 @@ test('recovers unfinished text, edits it, moves it, and erases the whole block',
   await expect
     .poll(() =>
       page.evaluate(
-        () =>
-          JSON.parse(localStorage.getItem('vatio_board_text_draft_v1'))?.object.paragraphs[0]
-            .runs[0].highlightRaw
+        async () =>
+          (await (await import('/test/helpers/board-browser.js')).activeBoard()).draft?.object
+            .paragraphs[0].runs[0].highlightRaw
       )
     )
     .toBe('#aed581');
@@ -346,7 +353,11 @@ test('keeps editing undo separate and cancels edits without changing the board',
   await input.press('Escape');
   await expect(page.locator('notectl-editor')).toHaveCount(0);
   await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('vatio_board_text_draft_v1')))
+    .poll(() =>
+      page.evaluate(
+        async () => (await (await import('/test/helpers/board-browser.js')).activeBoard()).draft
+      )
+    )
     .toBe(null);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect.poll(async () => (await objects(page)).length).toBe(0);
@@ -500,11 +511,11 @@ test('creates, highlights, and selects text with touch taps', async ({ page, isM
 test('finishes pending text for export, and clear can restore text with undo', async ({ page }) => {
   await startText(page, 'Export pending');
   const downloaded = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Save PNG', exact: true }).click();
+  await boardAction(page, 'save');
   await downloaded;
   await expect(page.locator('notectl-editor')).toHaveCount(0);
   await expect.poll(async () => (await objects(page)).length).toBe(1);
-  await page.getByRole('button', { name: 'Clear', exact: true }).click();
+  await boardAction(page, 'clear');
   await expect.poll(async () => (await objects(page)).length).toBe(0);
   expect(
     await page.locator('#textLayer').evaluate((canvas) =>
@@ -524,35 +535,36 @@ test('retains recovery data when a board save fails, and allows retrying an unch
   page,
 }) => {
   await page.addInitScript(() => {
-    Object.defineProperty(window, 'indexedDB', { value: undefined });
-    const setItem = Storage.prototype.setItem;
-    Storage.prototype.setItem = function (key, value) {
-      if (key === 'vatio_board_drawing_v5' && !window.allowBoardSave)
-        throw new DOMException('Quota exceeded', 'QuotaExceededError');
-      return setItem.call(this, key, value);
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (...args) {
+      if (this.name === 'boards' && !window.allowBoardSave)
+        throw new DOMException('Full', 'QuotaExceededError');
+      return put.apply(this, args);
     };
   });
   await page.reload();
   await startText(page, 'Keep recovery');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page.locator('#status')).toContainText('Could not save text');
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          JSON.parse(localStorage.getItem('vatio_board_text_draft_v1'))?.object.paragraphs[0]
-            .runs[0].text
+  expect(
+    (
+      await page.evaluate(async () =>
+        (await import('/test/helpers/board-browser.js')).activeBoard()
       )
-    )
-    .toBe('Keep recovery');
-  await page.evaluate(() => {
+    ).commands
+  ).toEqual([]);
+  await page.evaluate(async () => {
     window.allowBoardSave = true;
   });
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(await editor(page)).toBeVisible();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('vatio_board_text_draft_v1')))
+    .poll(() =>
+      page.evaluate(
+        async () => (await (await import('/test/helpers/board-browser.js')).activeBoard()).draft
+      )
+    )
     .toBe(null);
   await page.reload();
   await expect
@@ -576,7 +588,7 @@ test('does not mount a stale editor after switching away while its code loads', 
   await page.locator('#pad').click({ position: { x: 100, y: 150 } });
   await page.getByRole('button', { name: 'Pen', exact: true }).click();
   release();
-  await page.evaluate(() => import('/src/board/text-editor.ts').then(() => {}));
+  await page.evaluate(async () => import('/src/board/text-editor.ts').then(() => {}));
   await expect(page.locator('notectl-editor')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Pen', exact: true })).toHaveAttribute(
     'aria-pressed',
@@ -615,7 +627,7 @@ test('keeps inline layout across theme changes and supports the Spanish editor',
   await expect.poll(async () => (await objects(page)).length).toBe(1);
   expect((await objects(page))[0].paragraphs[0].runs[0].inkRaw).not.toBe('#111827');
   if (isMobile) {
-    await page.evaluate(() => localStorage.setItem('vatio_board_lang', 'es'));
+    await page.evaluate(async () => localStorage.setItem('vatio_board_lang', 'es'));
     await page.reload();
     await chooseObject(page, 'text');
     await page.locator('#pad').click({ position: { x: 110, y: 155 } });

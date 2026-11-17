@@ -1,10 +1,11 @@
-import { createIndexedJsonKeyValueStore } from '../shared/indexed-storage.ts';
+import { getAssetRecord, putAssetRecord, deleteAssetRecord } from './storage.ts';
+import type { BinaryAsset } from './storage.ts';
 import type { ContentObject } from './model.ts';
+import { IMAGE_TYPES, VIDEO_TYPES } from './model.ts';
+export { IMAGE_TYPES, VIDEO_TYPES } from './model.ts';
 
 export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 export const VIDEO_MAX_BYTES = 100 * 1024 * 1024;
-export const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
-export const VIDEO_TYPES = ['video/mp4', 'video/webm'];
 export interface BoardAsset {
   kind: 'image' | 'video';
   blob: Blob;
@@ -12,12 +13,7 @@ export interface BoardAsset {
   width: number;
   height: number;
 }
-interface BinaryAsset {
-  bytes: ArrayBuffer;
-  type: string;
-}
 function storedBlob(value: unknown): Blob | null {
-  if (value instanceof Blob) return value;
   if (!value || typeof value !== 'object') return null;
   const data = value as BinaryAsset;
   return Object.prototype.toString.call(data.bytes) === '[object ArrayBuffer]' &&
@@ -25,7 +21,6 @@ function storedBlob(value: unknown): Blob | null {
     ? new Blob([data.bytes], { type: data.type })
     : null;
 }
-const store = createIndexedJsonKeyValueStore({ dbName: 'vatio-board-assets', storeName: 'assets' });
 
 export function assetIdFor(object: ContentObject): string | null {
   return object.kind === 'image'
@@ -35,9 +30,9 @@ export function assetIdFor(object: ContentObject): string | null {
       : null;
 }
 export async function readAsset(id: string): Promise<BoardAsset | null> {
-  const value = await store.getValue(id);
+  const value = await getAssetRecord(id).catch(() => undefined);
   if (!value || typeof value !== 'object') return null;
-  const asset = value as Record<string, unknown>;
+  const asset = value;
   const blob = storedBlob(asset.blob),
     poster = storedBlob(asset.poster);
   return (asset.kind === 'image' || asset.kind === 'video') &&
@@ -57,7 +52,7 @@ export async function readAsset(id: string): Promise<BoardAsset | null> {
       }
     : null;
 }
-export async function saveAsset(asset: BoardAsset): Promise<string> {
+export async function saveAsset(boardId: string, asset: BoardAsset): Promise<string> {
   const id = crypto.randomUUID();
   // Buffers avoid file-backed Blob failures in some IndexedDB implementations.
   // They remain binary local data; object URLs and base64 never enter history or storage.
@@ -66,14 +61,22 @@ export async function saveAsset(asset: BoardAsset): Promise<string> {
     type: blob.type,
   });
   const record = {
-    ...asset,
+    kind: asset.kind,
+    width: asset.width,
+    height: asset.height,
+    id,
+    boardId,
     blob: await binary(asset.blob),
     ...(asset.poster ? { poster: await binary(asset.poster) } : {}),
   };
-  if (!(await store.setValue(id, record))) throw new Error('assetStorageFailed');
+  try {
+    await putAssetRecord(record);
+  } catch {
+    throw new Error('assetStorageFailed');
+  }
   return id;
 }
-export const discardAsset = (id: string) => store.deleteValue(id);
+export const discardAsset = (id: string) => deleteAssetRecord(id);
 
 export function imageFromBlob(blob: Blob): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {

@@ -5,13 +5,11 @@ import {
   exportGeometry,
   fitViewport,
   initialViewport,
-  loadViewport,
+  normalizeViewport,
   MAX_ZOOM,
   MIN_ZOOM,
   panBy,
-  saveViewport,
   screenToWorld,
-  VIEWPORT_KEY,
   visibleBounds,
   worldToScreen,
   zoomAt,
@@ -20,7 +18,7 @@ import {
 const size = { width: 800, height: 600 };
 
 describe('board viewport', () => {
-  it('starts with legacy board coordinates and round-trips negative points at every zoom', () => {
+  it('starts with board coordinates and round-trips negative points at every zoom', () => {
     const initial = initialViewport(size);
     expect(worldToScreen({ x: 50, y: 80 }, initial, size)).toEqual({ x: 50, y: 80 });
     for (const zoom of [MIN_ZOOM, 0.25, 1, MAX_ZOOM]) {
@@ -66,35 +64,16 @@ describe('board viewport', () => {
     applyViewport(ctx, { center: { x: 100, y: -100 }, zoom: 2 }, size, 3);
     expect(ctx.setTransform).toHaveBeenCalledWith(6, 0, 0, 6, 600, 1500);
   });
-  it('restores valid local views, rejects corrupt views, and tolerates unavailable storage', () => {
-    const view = { center: { x: -10, y: 75 }, zoom: 0.75 };
-    saveViewport(view);
-    expect(loadViewport()).toEqual(view);
-    for (const invalid of [
-      { version: 2, ...view },
-      { version: 1, ...view, zoom: 0 },
-      { version: 1, ...view, center: { x: null, y: 0 } },
-    ]) {
-      localStorage.setItem(VIEWPORT_KEY, JSON.stringify(invalid));
-      expect(loadViewport()).toBeNull();
-    }
-    localStorage.setItem(VIEWPORT_KEY, '{broken');
-    expect(loadViewport()).toBeNull();
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new Error('Quota');
-    });
-    expect(() => saveViewport(view)).not.toThrow();
-  });
-  it('clamps old saved zoom levels while preserving the board center', () => {
+  it('validates viewport data independently of persistence and clamps zoom', () => {
     const center = { x: -1200, y: 800 };
+    for (const invalid of [null, {}, { zoom: 0, center }, { zoom: 1, center: { x: NaN, y: 0 } }])
+      expect(normalizeViewport(invalid)).toBeNull();
     for (const [zoom, expected] of [
       [0.01, MIN_ZOOM],
-      [0.25, MIN_ZOOM],
+      [0.75, 0.75],
       [10, MAX_ZOOM],
-    ]) {
-      localStorage.setItem(VIEWPORT_KEY, JSON.stringify({ version: 1, center, zoom }));
-      expect(loadViewport()).toEqual({ center, zoom: expected });
-    }
+    ])
+      expect(normalizeViewport({ center, zoom })).toEqual({ center, zoom: expected });
   });
 });
 

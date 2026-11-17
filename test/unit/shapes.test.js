@@ -67,6 +67,8 @@ describe('typed shapes and geometry', () => {
     const eraser = normalizeCommand({
       type: 'stroke',
       tool: 'eraser',
+      size: 6,
+      inkRaw: '#111827',
       points: [{ x: 0, y: 0 }],
       erasedShapeIds: ['a', 'a', '', 2],
     });

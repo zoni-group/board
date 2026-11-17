@@ -8,6 +8,37 @@ import { loadText, saveText } from './shared/storage.ts';
 export type Language = 'en' | 'es';
 
 const english = {
+  boards: 'Boards',
+  boardDefaultName: 'Board',
+  boardName: 'Board name',
+  currentBoard: 'Current board',
+  newBoard: 'New board',
+  openBoards: 'Open boards…',
+  renameBoard: 'Rename',
+  deleteBoard: 'Delete board',
+  clearDrawing: 'Clear drawing',
+  exportBoard: 'Export board',
+  exportAllBoards: 'Export all boards',
+  importBoards: 'Import boards…',
+  deleteBoardQuestion: 'Delete “{name}” and its history? This cannot be undone.',
+  boardDeletedStatus: 'Board deleted',
+  boardsExported: 'Editable boards exported with history and media',
+  boardsImported: 'Boards imported as new copies',
+  boardConflict:
+    'This board changed in another tab. Export this board to keep your unsaved edits, then reload the page.',
+  boardDeleted: 'This board was deleted in another tab. Export to keep your unsaved edits.',
+  invalidBoardName: 'Enter a board name between 1 and 100 characters.',
+  invalidArchive: 'This board file is incomplete or damaged. No boards were imported.',
+  unsupportedArchive: 'This is not a supported ZONI Board file.',
+  archiveMissingMedia: 'Some media is missing from this board. Could not create a complete export.',
+  archiveTooLarge: 'This backup is too large. Export boards individually.',
+  storageUnavailable:
+    'Local board storage is unavailable. You can draw and export this board; saved boards could not be opened.',
+  invalidLibrary: 'Could not read the saved board library. Your saved data has not been replaced.',
+  invalidBoard: 'Could not read this board. Your saved data has not been replaced.',
+  boardSaveFailed: 'Could not save this board. Keep it open or export it to preserve your changes.',
+  boardOperationFailed:
+    'Could not complete this board operation. Your existing boards have not been replaced.',
   addObject: 'Add object',
   image: 'Image',
   table: 'Table',
@@ -103,7 +134,6 @@ const english = {
   minimumZoomReached: 'Minimum zoom reached. Pan to see the rest of the drawing.',
 
   // File
-  drawingFilename: 'drawing.png',
 
   // Header/Brand
   brand: 'ZONI® Board',
@@ -121,6 +151,39 @@ function isTranslationKey(key: string): key is TranslationKey {
 const translations = {
   en: english,
   es: {
+    boards: 'Pizarras',
+    boardDefaultName: 'Pizarra',
+    boardName: 'Nombre de la pizarra',
+    currentBoard: 'Pizarra actual',
+    newBoard: 'Nueva pizarra',
+    openBoards: 'Abrir pizarras…',
+    renameBoard: 'Renombrar',
+    deleteBoard: 'Eliminar pizarra',
+    clearDrawing: 'Limpiar dibujo',
+    exportBoard: 'Exportar pizarra',
+    exportAllBoards: 'Exportar todas las pizarras',
+    importBoards: 'Importar pizarras…',
+    deleteBoardQuestion: '¿Eliminar «{name}» y su historial? Esta acción no se puede deshacer.',
+    boardDeletedStatus: 'Pizarra eliminada',
+    boardsExported: 'Pizarras editables exportadas con historial y archivos',
+    boardsImported: 'Pizarras importadas como copias nuevas',
+    boardConflict:
+      'Esta pizarra cambió en otra pestaña. Expórtala para conservar los cambios sin guardar y recarga la página.',
+    boardDeleted: 'Esta pizarra se eliminó en otra pestaña. Expórtala para conservar tus cambios.',
+    invalidBoardName: 'Introduce un nombre de entre 1 y 100 caracteres.',
+    invalidArchive: 'El archivo está incompleto o dañado. No se importó ninguna pizarra.',
+    unsupportedArchive: 'Este archivo no es una pizarra ZONI compatible.',
+    archiveMissingMedia:
+      'Faltan archivos de esta pizarra. No se pudo crear una exportación completa.',
+    archiveTooLarge: 'La copia es demasiado grande. Exporta las pizarras por separado.',
+    storageUnavailable:
+      'El almacenamiento local no está disponible. Puedes dibujar y exportar esta pizarra; no se pudieron abrir las guardadas.',
+    invalidLibrary: 'No se pudo leer la biblioteca. Los datos guardados no se han reemplazado.',
+    invalidBoard: 'No se pudo leer la pizarra. Los datos guardados no se han reemplazado.',
+    boardSaveFailed:
+      'No se pudo guardar la pizarra. Mantenla abierta o expórtala para conservar los cambios.',
+    boardOperationFailed:
+      'No se pudo completar la operación. Las pizarras existentes no se han reemplazado.',
     addObject: 'Añadir objeto',
     image: 'Imagen',
     table: 'Tabla',
@@ -219,7 +282,6 @@ const translations = {
     minimumZoomReached: 'Zoom mínimo alcanzado. Desplázate para ver el resto del dibujo.',
 
     // File
-    drawingFilename: 'dibujo.png',
 
     // Header/Brand
     brand: 'ZONI® Board',

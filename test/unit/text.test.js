@@ -2,13 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cloneCommand, normalizeCommand, normalizeTextObject } from '../../src/board/model.ts';
 import { resolveTextObjects } from '../../src/board/text-scene.ts';
 import { layoutText, drawText, intersectsText } from '../../src/board/text-layout.ts';
-import {
-  loadTextDraft,
-  recoverTextDraft,
-  saveTextDraft,
-  clearTextDraft,
-  TEXT_DRAFT_KEY,
-} from '../../src/board/text-draft.ts';
+import { normalizeTextDraft, recoverTextDraft } from '../../src/board/text-draft.ts';
 import { textObject } from '../helpers/text-fixture.js';
 
 beforeEach(() => localStorage.clear());
@@ -167,46 +161,27 @@ describe('text layout and eraser geometry', () => {
   });
 });
 
-describe('local text recovery', () => {
-  it('restores an unfinished edit and clears only the matching recovery record', () => {
-    const original = textObject(),
-      object = textObject({ position: { x: 22, y: 30 } });
-    const draft = { token: 'draft-1', original, object };
-    object.paragraphs[0].runs[0].highlightRaw = '#fff176';
-    expect(saveTextDraft(draft)).toBe(true);
-    expect(recoverTextDraft([original])).toEqual(draft);
-    clearTextDraft('older-token');
-    expect(loadTextDraft()).toEqual(draft);
-    clearTextDraft('draft-1');
-    expect(loadTextDraft()).toBeNull();
+describe('board-scoped text recovery', () => {
+  it('validates current drafts and recovers unfinished edits', () => {
+    const draft = { token: 'd', object: textObject(), original: null };
+    expect(normalizeTextDraft(draft)).toEqual(draft);
+    expect(recoverTextDraft(draft, [])).toEqual(draft);
+    expect(normalizeTextDraft({})).toBeNull();
+    expect(normalizeTextDraft({ ...draft, object: {} })).toBeNull();
   });
-  it('recovers conflicting edits as a new object and never overwrites the current object', () => {
+  it('recovers conflicting edits as a new object without replacing current content', () => {
     const original = textObject(),
-      object = textObject({ position: { x: 22, y: 30 } });
-    saveTextDraft({ token: 'draft-1', original, object });
-    const recovered = recoverTextDraft([]);
+      object = textObject({ position: { x: 22, y: 30 } }),
+      draft = { token: 'd', original, object };
+    const recovered = recoverTextDraft(draft, []);
     expect(recovered.original).toBeNull();
     expect(recovered.object.id).not.toBe(original.id);
-    expect(recovered.object.paragraphs).toEqual(object.paragraphs);
   });
-  it('discards an already committed recovery copy, and safely rejects corrupt drafts', () => {
-    const object = textObject();
-    saveTextDraft({ token: 'draft-1', original: null, object });
-    expect(recoverTextDraft([object])).toBeNull();
-    expect(loadTextDraft()).toBeNull();
-    localStorage.setItem(TEXT_DRAFT_KEY, '{broken');
-    expect(loadTextDraft()).toBeNull();
-    localStorage.setItem(
-      TEXT_DRAFT_KEY,
-      JSON.stringify({ version: 1, token: 'a', object: {}, original: null })
-    );
-    expect(loadTextDraft()).toBeNull();
+  it('discards already committed drafts even after the object was undone or deleted', () => {
+    const object = textObject(),
+      draft = { token: 'd', object, original: null, committing: true };
+    expect(recoverTextDraft(draft, [object])).toBeNull();
+    expect(recoverTextDraft(draft, [], [{ type: 'text-set', object }])).toBeNull();
+    expect(recoverTextDraft(draft, [], [{ type: 'text-delete', ids: [object.id] }])).toBeNull();
   });
-});
-
-it('does not resurrect a finished text draft that was intentionally undone or deleted', () => {
-  const object = textObject();
-  saveTextDraft({ token: 'accepted', object, original: null, committing: true });
-  expect(recoverTextDraft([], [{ type: 'text-set', object }])).toBeNull();
-  expect(loadTextDraft()).toBeNull();
 });
