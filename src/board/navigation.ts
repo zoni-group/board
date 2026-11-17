@@ -269,7 +269,7 @@ export function createBoardNavigation(options: NavigationOptions) {
           node === canvas ||
           (node instanceof Element &&
             (node.id === 'textSelection' ||
-              node.closest('.board-navigation, .text-selection-actions')))
+              node.closest('.board-navigation, .object-selection-actions, .object-selection')))
       )
     )
       return false;
@@ -317,6 +317,14 @@ export function createBoardNavigation(options: NavigationOptions) {
     cancel();
   });
   return {
+    beginDrag(event: PointerEvent, start: () => void) {
+      if (!options.ready() || gesture.kind !== 'idle' || options.locked()) return;
+      event.preventDefault();
+      pointers.set(event.pointerId, { point: point(event), type: event.pointerType || 'mouse' });
+      capture(event.pointerId);
+      gesture = { kind: 'drawing', id: event.pointerId, type: event.pointerType || 'mouse' };
+      start();
+    },
     cancel,
     syncCursor,
     handleKey,

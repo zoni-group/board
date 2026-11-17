@@ -1,9 +1,11 @@
+import { chooseObject } from '../helpers/object-picker.js';
 import { test, expect } from '@playwright/test';
 import { textObject } from '../helpers/text-fixture.js';
 
 const viewKey = 'vatio_board_viewport_v1';
 const dot = (x, y, inkRaw = '#0000ff', size = 10, tool = 'pen') => ({
   type: 'stroke',
+  ...(tool === 'pen' ? { id: `dot-${x}-${y}` } : {}),
   tool,
   size,
   inkRaw,
@@ -33,7 +35,7 @@ async function seed(page, commands, view = null) {
     { commands, view, viewKey }
   );
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Text', exact: true })).toBeEnabled();
+  await expect(page.locator('#text')).toBeEnabled();
 }
 async function camera(page) {
   return page.evaluate((key) => {
@@ -99,14 +101,14 @@ async function png(page) {
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('button', { name: 'Text', exact: true })).toBeEnabled();
+  await expect(page.locator('#text')).toBeEnabled();
 });
 
 test('keeps bottom-edge text actions above the fixed navigation controls', async ({ page }) => {
   const rect = await page.locator('#pad').boundingBox();
   const object = textObject({ position: { x: 20, y: rect.height - 15 } });
   await seed(page, [{ type: 'text-set', object }]);
-  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await chooseObject(page, 'text');
   await page.locator('#pad').click({ position: { x: 24, y: rect.height - 12 } });
   const move = page.getByRole('button', { name: 'Move', exact: true });
   await expect(move).toBeInViewport();
@@ -165,7 +167,7 @@ test('draws, edits, moves, and erases highlighted text in world coordinates at z
   object.paragraphs[0].runs[0].text = 'Zoom';
   object.paragraphs[0].runs[0].highlightRaw = '#fff176';
   await seed(page, [{ type: 'text-set', object }], { center: { x: -100, y: -100 }, zoom: 2 });
-  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await chooseObject(page, 'text');
   await page.locator('#pad').click({ position: await localPoint(page, { x: -145, y: -145 }) });
   const selected = await page.locator('#textSelection').boundingBox();
   expect(selected.height).toBeCloseTo(76.8, 0);
@@ -213,7 +215,7 @@ test('two-finger navigation cancels ink and text erasing and never creates a tex
   await expect.poll(async () => (await camera(page)).zoom).toBeGreaterThan(1);
   expect((await snapshot(page)).commands).toEqual([]);
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await chooseObject(page, 'text');
   await pointer(page, 'pointerdown', 21, x, y);
   await pointer(page, 'pointerdown', 22, x + 100, y);
   await pointer(page, 'pointermove', 22, x + 130, y + 10);
@@ -288,7 +290,7 @@ test('restores the last view, preserves it on resize and clear, and rejects corr
   await seed(page, [dot(-1500, 700)], view);
   await expect(page.locator('#zoomReset')).toHaveText('50%');
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Text', exact: true })).toBeEnabled();
+  await expect(page.locator('#text')).toBeEnabled();
   expect(await camera(page)).toEqual(view);
   await page.setViewportSize({ width: 700, height: 500 });
   await expect(page.locator('#zoomReset')).toHaveText('50%');
@@ -318,7 +320,7 @@ test('preserves the initial view across resize and reopen and anchors native whe
   const initial = await camera(page);
   await page.setViewportSize({ width: 700, height: 500 });
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Text', exact: true })).toBeEnabled();
+  await expect(page.locator('#text')).toBeEnabled();
   expect(await camera(page)).toEqual(initial);
   const rect = await page.locator('#pad').boundingBox();
   const anchor = { x: 150, y: 180 };
@@ -367,7 +369,7 @@ test('supports temporary Hand navigation and protects active text composition', 
     'true'
   );
   expect((await snapshot(page)).commands).toEqual([]);
-  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await chooseObject(page, 'text');
   await page.locator('#pad').click({ position: { x: 100, y: 150 } });
   const input = page.locator('notectl-editor').getByRole('textbox');
   await input.pressSequentially('Draft');
@@ -392,7 +394,7 @@ test('recovers an offscreen draft into view without changing its board coordinat
   page,
 }) => {
   await seed(page, [], { center: { x: -2000, y: -1500 }, zoom: 0.5 });
-  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await chooseObject(page, 'text');
   await page.locator('#pad').click({ position: { x: 100, y: 150 } });
   let input = page.locator('notectl-editor').getByRole('textbox');
   await input.pressSequentially('Recovered');

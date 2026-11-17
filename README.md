@@ -16,6 +16,7 @@ What it does:
 - full-screen drawing canvas with pen and eraser tools
 - brush size control, preset swatches, and an `iro` color picker
 - editable, movable text blocks with selected-word formatting
+- images, formatted tables, and video cards through the Text button's **Add object** picker
 - undo, redo, clear, and PNG download
 - local autosave of drawing history using IndexedDB with `localStorage` fallback
 - English/Spanish language toggle
@@ -101,17 +102,89 @@ Vite bundles the application, while `npm run typecheck` checks types. Production
 including CI and deployment, run the type check before bundling.
 
 `src/board/model.ts` defines the shared drawing commands, snapshots, validation, and cloning.
-Storage reads are treated as unknown until normalized. Version 1 drawings migrate to isolated
-version 2 metadata and chunks; the original version 1 records remain intact.
+Storage reads are treated as unknown until normalized. Version 1–4 drawings migrate to isolated
+version 5 metadata and chunks; the original records remain intact for older tabs and rollback.
+Each pen stroke receives a stable identity, including strokes in redo history. Small edit commands
+record translation and style changes without duplicating or rewriting the original points.
 
 New command types must be handled explicitly in cloning and rendering. Keep drawing points
 in board coordinates (CSS pixels at 100% zoom): zoom transforms input and rendering rather
 than rewrite saved points. TypeScript dependencies are development-only; drawing and storage
 remain local to the browser.
 
+## Selecting and Editing Objects
+
+Choose **Select** (the pointer beside Hand), or press **V** with the board focused. Click or tap
+one pen stroke, text block, shape, image, table, or video card to select it. Drag the object to move it; clicking empty
+space deselects. Text is picked above shapes, and shapes above ink, following the drawing's
+visible layer order. Images, tables, and video cards sit beneath ink in their creation order.
+Each pen-down/up gesture is one object; freehand drawings with several
+strokes are edited one stroke at a time.
+
+Use **Delete** or Delete/Backspace to remove the selected object. **Done** or Escape deselects;
+Escape during movement or resizing cancels that unfinished change. Arrow keys move by one board
+unit; Shift moves by ten. Existing shape handles and Shift/Alt+arrow resizing work in Select too.
+Selection itself and clicks without movement do not add undo entries. **Clear** still removes the
+whole board, with undo available.
+
+The existing color picker and width slider change a selected pen stroke or shape without leaving
+Select. A continuous adjustment commits one undoable edit. For text, choose **Edit**, press Enter,
+or double-click to use the existing rich-text editor. The brush controls are disabled for text in
+Select; text formatting stays in its editor. Finishing or cancelling the editor returns to Select.
+
+Partial erasing stays with each pen stroke when it moves. Erasing after movement also follows the
+stroke on later moves; other strokes are not affected by that object's masks. Picking tests nearby
+visible ink, so an erased gap does not select an invisible stroke. Fully erased ink can remain in
+history until Clear; Fit bounds remain conservative, as with the existing pixel eraser.
+
+Text's Move/Edit shortcuts and Shapes' drawing/editing interactions remain available through the
+same selection controller. Two-finger navigation cancels unfinished object movement, including
+movement begun with Text's Move handle. Stylus palm rejection, fixed-size controls, local saving,
+undo/redo, Fit and whole-board PNG export apply to all object edits. Selection outlines and handles
+are temporary and never saved or exported.
+
+Selection supports one object at a time. Grouping, box selection, pen/text geometry resizing,
+rotation and new fill/opacity attributes are outside this version's scope. No runtime dependency
+or remote storage is added.
+
+## Images, Tables, and Videos
+
+The former Text button is now **Add object**, with four choices: **Text**, **Image**, **Table**,
+and **Video**. Shapes retain their separate button. The object button displays the last choice;
+opening it always shows all four options.
+
+- **Image:** choose PNG, JPEG, or WebP (up to 10 MiB), drop one file onto the board, or paste an
+  image while the board has focus. Images larger than 4096 pixels on their longest side are
+  reduced before saving. Images preserve their proportions when resized with selection handles.
+- **Table:** choose an initial row/column count (3 × 3 by default). The lazy-loaded notectl editor
+  supports bold/italic text, sizes, colors, highlights, alignment, row/column insertion and deletion,
+  border colors, column widths, and minimum row heights. Text wraps and rows grow to fit. Use
+  **Done** or Ctrl/⌘+Enter to save one board operation, or **Cancel**/Escape to discard the session.
+  Edit a selected table with **Edit**, Enter, or double-click. Tables support up to 50 rows and
+  20 columns; merged/nested cells, formulas, and media inside cells are outside this version.
+- **Video:** import MP4/WebM (up to 100 MiB, depending on browser codec support), or enter an HTTPS
+  YouTube/Vimeo video URL. Select the card and choose **Play video**, press Enter, or double-click
+  to open a focused player. Playback uses native controls or the provider's player. Closing the
+  player stops playback. Hosted videos require a connection; provider requests start only when
+  the player is opened. No remote thumbnails or metadata are fetched during insertion.
+
+Images and videos use a separate local IndexedDB asset store. Binary data never enters command
+history or `localStorage`; history contains asset IDs and object metadata. Asset saving must
+complete before insertion. If browser storage is unavailable or full, the import reports the
+failure and leaves the board intact. Existing drawings, tables, and hosted video cards can still
+use the regular history fallback. Deleted/Cleared assets are retained for Undo, Redo, and saved
+recovery generations; automatic asset pruning is deferred. Clearing browser site data removes
+locally saved media along with the board.
+
+Select moves and deletes all three object types. Images/video cards have corner resize handles;
+table dimensions are adjusted in its editor. Erasing annotations preserves underlying media and
+tables. Fit and PNG export include every object, including those beyond the current view. PNGs
+contain image pixels, formatted tables, and video poster/title cards. Missing assets remain as
+identifiable placeholders. Dialogs scroll internally and keep the navigation strip visible.
+
 ## Text Tool
 
-Select **Text**, then click or tap the board to type. The editor supports selected-word bold,
+Open **Add object** (the former Text button), choose **Text**, then click or tap the board to type. The editor supports selected-word bold,
 italic, text color, highlighting, and font size, with alignment per paragraph. Highlight offers
 yellow, green, blue, pink, and orange backgrounds; choose **None** to remove it. Select words
 to highlight them, or choose a color at the caret to highlight text as you type. Highlighting
@@ -131,6 +204,37 @@ freehand drawing and is included in PNG exports; controls and selection outlines
 Only one editor is mounted at a time. The editor runtime loads when Text is first selected;
 committed text uses a separate transparent canvas and a board-owned JSON format. No server,
 external fonts, or collaboration service is required.
+
+## Shapes Tool
+
+Select **Shapes**, then choose **Rectangle**, **Ellipse**, **Line**, or **Arrow**. Drag to draw
+with a live preview. Hold Shift for a square/circle or line angles in 45-degree
+increments. The current color and width controls apply to new shapes. Interiors stay transparent.
+
+While Shapes is active, tap a shape to select it, drag its body to move it, and drag a corner
+handle to resize a rectangle/ellipse. Lines and arrows have two endpoint handles; their direction
+is preserved. Hold Shift while resizing for the same constraints. Change color or width to restyle
+the selection. **Delete** removes it; **Done**, Escape, or changing tools dismisses the selection.
+Choosing a shape kind also dismisses selection, so the next drag can draw inside or across
+existing shapes. A tap selects an existing shape; a drag moves it once it is selected.
+On the focused board, arrow keys move the selection by one board unit (Shift: ten);
+Alt+arrows resize by moving its end corner/endpoint. Delete/Backspace removes it.
+
+Each drawing, move, resize, or style gesture is one undoable edit. Clicks without a drag do not
+create tiny shapes. Escape, pointer cancellation, capture loss, or a second touch cancels an
+unfinished shape or transform. Two-finger pan/zoom and stylus palm rejection use the same routing
+as freehand drawing. Handles and controls keep their screen size while shapes zoom with the board.
+
+The eraser removes a whole shape when it touches the outline; crossing an empty interior alone
+does not remove it. A single eraser gesture can remove several shapes and text blocks along with
+ink, and undo restores them together. Shapes remain editable after local autosave and reload.
+They render above freehand ink and below text, in shape creation order; editing retains that order.
+Fit and whole-board PNG export include shapes and arrowheads, including offscreen content.
+Selection outlines, handles, and previews are excluded from exports.
+
+Shapes use the existing Canvas renderer and strict TypeScript command model, with no new runtime
+dependencies. Their viewport-sized transparent layer avoids allocating a canvas as large as the
+workspace. Grouping, rotation, fills, and connected diagram editing are outside this tool's scope.
 
 ## Moving and Zooming
 
@@ -165,7 +269,7 @@ active text edit, except while composing text with an input method.
 **Save PNG** includes the whole drawing, including offscreen content, with a 32-unit margin,
 independently of the current zoom. It renders at one pixel per board unit and reduces resolution
 uniformly above 4096 pixels per side or 8 megapixels; the status message reports this reduction.
-The image keeps the board background, erasing, text, and highlighting. Conservative stroke bounds
+The image keeps the board background, erasing, shapes, text, and highlighting. Conservative stroke bounds
 can leave whitespace after pixel erasing. An empty drawing exports a viewport-sized blank image.
 
 ## Persistence Model

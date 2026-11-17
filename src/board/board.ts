@@ -3,6 +3,12 @@ import '../styles/board.less';
 import { loadBoardDrawing, saveBoardDrawing } from './storage.ts';
 import { cloneCommand, clonePoint } from './model.ts';
 import { createTextTool } from './text-tool.ts';
+import { createShapeTool } from './shape-tool.ts';
+import { createSelection } from './selection.ts';
+import { createContentTool } from './content-tool.ts';
+import { createAssetCache } from './assets.ts';
+import { drawContent, contentBounds } from './content.ts';
+import { renderInk } from './ink.ts';
 import { createBoardNavigation } from './navigation.ts';
 import { observeScreenLayout } from './screen-layout.ts';
 import {
@@ -10,7 +16,6 @@ import {
   createBoardScene,
   createDrawingCanvas,
   drawStroke,
-  renderStrokes,
 } from './scene-renderer.ts';
 import type { BoardScene } from './scene-renderer.ts';
 import {
@@ -22,6 +27,8 @@ import {
   MIN_ZOOM,
   saveViewport,
   screenToWorld,
+  boundsIntersect,
+  visibleBounds,
   zoomAt,
 } from './viewport.ts';
 import type { BoardViewport } from './viewport.ts';
@@ -29,6 +36,7 @@ import type { BoardCommand, BoardSnapshot, Point, StrokeCommand, BoardTool } fro
 import type { Language } from '../i18n.ts';
 
 import { applyButtonIcon } from '../shared/tools-menu.ts';
+import { loadText, saveText } from '../shared/storage.ts';
 import iro from '@jaames/iro';
 import { t, applyTranslations, toggleLang, getLang } from '../i18n.ts';
 import {
@@ -40,7 +48,9 @@ import {
   IconUndo,
   IconText,
   IconHand,
+  IconSelect,
   IconFit,
+  ShapeIcons,
 } from '../icons.ts';
 
 interface Rgb {
@@ -89,6 +99,7 @@ langToggleButtons.forEach((button) => {
 
 // Toolbar buttons
 applyButtonIcon(requireElement('text', 'button'), IconText);
+applyButtonIcon(requireElement('shapes', 'button'), ShapeIcons.rectangle);
 applyButtonIcon(requireElement('pen', 'button'), IconPen);
 applyButtonIcon(requireElement('erase', 'button'), IconEraser);
 applyButtonIcon(requireElement('undo', 'button'), IconUndo);
@@ -96,6 +107,7 @@ applyButtonIcon(requireElement('redo', 'button'), IconRedo);
 applyButtonIcon(requireElement('clear', 'button'), IconTrash);
 applyButtonIcon(requireElement('save', 'button'), IconDownload);
 applyButtonIcon(requireElement('hand', 'button'), IconHand);
+applyButtonIcon(requireElement('select', 'button'), IconSelect);
 applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
 
 (function () {
@@ -106,6 +118,8 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   const statusEl = requireElement('status', 'span');
 
   const textLayer = requireElement('textLayer', 'canvas');
+  const shapeLayer = requireElement('shapeLayer', 'canvas');
+  const shapesBtn = requireElement('shapes', 'button');
   const textContext = requireCanvasContext(textLayer);
   const textBtn = requireElement('text', 'button');
   const penBtn = requireElement('pen', 'button');
@@ -117,6 +131,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   const clearBtn = requireElement('clear', 'button');
   const saveBtn = requireElement('save', 'button');
   const handBtn = requireElement('hand', 'button');
+  const selectBtn = requireElement('select', 'button');
   const zoomInBtn = requireElement('zoomIn', 'button');
   const zoomOutBtn = requireElement('zoomOut', 'button');
   const zoomResetBtn = requireElement('zoomReset', 'button');
@@ -134,8 +149,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   }
 
-  let inkRaw =
-    normalizeHex(localStorage.getItem(LS_INK_RAW)) || (isDarkMode() ? '#e5e7eb' : '#111827');
+  let inkRaw = normalizeHex(loadText(LS_INK_RAW)) || (isDarkMode() ? '#e5e7eb' : '#111827');
 
   // Popup UI
   const colorTriggerBtn = requireElement('sizePreview', 'button');
@@ -189,6 +203,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
 
   function closeColorPopup() {
     if (colorPopup) colorPopup.hidden = true;
+    shapeTool.flushStyle();
   }
 
   colorTriggerBtn?.addEventListener('click', openColorPopup);
@@ -233,8 +248,67 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   let sceneLast: BoardCommand | undefined;
   const commandHistory: BoardCommand[] = [];
   const redoHistory: BoardCommand[] = [];
+  const assets = createAssetCache(redrawCanvas);
+  const selection = createSelection({
+    canvas,
+    textContext,
+    scene: getScene,
+    view: () => viewport ?? initialViewport(boardSize()),
+    tool: () => tool,
+    editing: () => textTool.isEditing() || contentTool.isEditing(),
+    hidden: () => shapeTool.isBusy() || shapeTool.isPickerOpen() || contentTool.isPickerOpen(),
+    redraw: redrawCanvas,
+    commit(command) {
+      pushHistoryCommand(command);
+      redrawCanvas();
+      setStatus(t('draftUpdated'));
+      return queueBoardPersistence();
+    },
+    editObject: (ref) => (ref.kind === 'text' ? textTool.edit(ref.id) : contentTool.edit(ref)),
+    beginGrip: (event, ref) => navigation.beginDrag(event, () => selection.begin(event, ref)),
+    changed(ref, style) {
+      const disabled =
+        selection.isDragging() ||
+        (tool === 'select' && ref !== null && ref.kind !== 'stroke' && ref.kind !== 'shape');
+      for (const control of [
+        sizeEl,
+        sizePreview,
+        ...swatchesEl.querySelectorAll<HTMLButtonElement>('button'),
+      ])
+        control.disabled = disabled;
+      if (!style) return;
+      sizeEl.value = String(style.size);
+      sizePreview.style.setProperty('--board-size-preview', `${sizeEl.value}px`);
+      sizeEl.setAttribute('aria-valuetext', sizeEl.value);
+      inkRaw = style.inkRaw;
+      saveText(LS_INK_RAW, inkRaw);
+      applyInk();
+      setPopupFromInkRaw();
+      syncIroFromInk();
+    },
+    status: setStatus,
+  });
+  const shapeTool = createShapeTool({
+    canvas,
+    layer: shapeLayer,
+    button: shapesBtn,
+    selection,
+    getObjects: () => getScene().shapes,
+    getViewport: () => viewport ?? initialViewport(boardSize()),
+    style: () => ({ size: Number(sizeEl.value) || 6, inkRaw }),
+    ink: renderedInk,
+    commit(command) {
+      pushHistoryCommand(command);
+      redrawCanvas();
+      setStatus(t('draftUpdated'));
+      return queueBoardPersistence();
+    },
+    status: setStatus,
+  });
   const textTool = createTextTool({
     canvas,
+    selection,
+    selecting: () => tool === 'select',
     layer: textLayer,
     context: textContext,
     getObjects: () => getScene().text,
@@ -250,6 +324,28 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       setStatus(t('draftUpdated'));
       return queueBoardPersistence();
     },
+    historyChanged: syncHistoryButtons,
+    ink: appliedInkFromRaw,
+    status: setStatus,
+  });
+  const contentTool = createContentTool({
+    canvas,
+    button: textBtn,
+    selection,
+    ready: () => boardReady,
+    objects: () => getScene().content,
+    view: () => viewport ?? initialViewport(boardSize()),
+    prepare: () => selectTool('select'),
+    text: () => {
+      selectTool('text');
+    },
+    commit(command) {
+      pushHistoryCommand(command);
+      redrawCanvas();
+      setStatus(t('draftUpdated'));
+      return queueBoardPersistence();
+    },
+    redraw: redrawCanvas,
     historyChanged: syncHistoryButtons,
     ink: appliedInkFromRaw,
     status: setStatus,
@@ -295,6 +391,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       });
   }
   function fitDrawing() {
+    shapeTool.flushStyle();
     const bounds = getScene().bounds;
     const fitted = fitViewport(bounds, boardSize());
     changeViewport(fitted);
@@ -329,26 +426,36 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     penBtn.setAttribute('aria-pressed', tool === 'pen' ? 'true' : 'false');
     eraseBtn.setAttribute('aria-pressed', tool === 'eraser' ? 'true' : 'false');
     handBtn.setAttribute('aria-pressed', tool === 'hand' ? 'true' : 'false');
+    shapesBtn.setAttribute('aria-pressed', String(tool === 'shapes'));
+    selectBtn.setAttribute('aria-pressed', String(tool === 'select'));
+    canvas.classList.toggle('select-tool-active', tool === 'select');
+    selection.paint();
     navigation.syncCursor();
     if (shouldAnnounce) {
       setStatus(
-        tool === 'text'
-          ? t('text')
-          : tool === 'pen'
-            ? t('pen')
-            : tool === 'hand'
-              ? t('navigationHint')
-              : t('eraser')
+        tool === 'select'
+          ? t('selectHint')
+          : tool === 'text'
+            ? t('text')
+            : tool === 'shapes'
+              ? t('shapeHint')
+              : tool === 'pen'
+                ? t('pen')
+                : tool === 'hand'
+                  ? t('navigationHint')
+                  : t('eraser')
       );
     }
   }
 
   function activatePenTool(options: ToolOptions = {}) {
+    if (tool === 'shapes' || tool === 'select') return;
     if (tool === 'pen') {
       if (options.announce) setActive(options);
       return;
     }
     if (!textTool.activate(false)) return;
+    selection.clear();
     tool = 'pen';
     setActive(options);
   }
@@ -358,6 +465,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     const sizeValue = Math.max(2, Math.min(22, Number(sizeEl.value) || 6));
     sizePreview.style.setProperty('--board-size-preview', `${sizeValue}px`);
     sizeEl.setAttribute('aria-valuetext', `${sizeValue}`);
+    selection.updateStyle({ size: sizeValue });
     activatePenTool({ announce: true });
   }
 
@@ -375,8 +483,16 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   }
 
   function syncHistoryButtons() {
-    undoBtn.disabled = textTool.isEditing() ? !textTool.canUndo() : commandHistory.length === 0;
-    redoBtn.disabled = textTool.isEditing() ? !textTool.canRedo() : redoHistory.length === 0;
+    undoBtn.disabled = contentTool.isEditing()
+      ? !contentTool.canUndo()
+      : textTool.isEditing()
+        ? !textTool.canUndo()
+        : commandHistory.length === 0;
+    redoBtn.disabled = contentTool.isEditing()
+      ? !contentTool.canRedo()
+      : textTool.isEditing()
+        ? !textTool.canRedo()
+        : redoHistory.length === 0;
   }
 
   function createBoardDrawingSnapshot(): BoardSnapshot {
@@ -544,18 +660,8 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     }
     return ink;
   }
-  function clearSurface(target: CanvasRenderingContext2D) {
-    target.save();
-    target.setTransform(1, 0, 0, 1, 0, 0);
-    target.clearRect(0, 0, target.canvas.width, target.canvas.height);
-    target.restore();
-  }
   function applyCommandStyle(target: CanvasRenderingContext2D, command: StrokeCommand) {
     applyStrokeStyle(target, command, renderedInk);
-  }
-  function drawCommandToContext(target: CanvasRenderingContext2D, command: BoardCommand) {
-    if (command.type === 'clear') clearSurface(target);
-    else if (command.type === 'stroke') drawStroke(target, command, renderedInk);
   }
   function prepareHistorySurface() {
     historyCanvas.width = canvas.width;
@@ -568,6 +674,21 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = renderBackground;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    if (viewport) applyViewport(ctx, viewport, boardSize(), canvasDpr);
+    if (viewport)
+      for (const object of getScene().content) {
+        const shown = selection.displayContent(object);
+        if (
+          boundsIntersect(contentBounds(textContext, shown), visibleBounds(viewport, boardSize()))
+        )
+          drawContent(ctx, shown, {
+            image: assets.image,
+            background: renderBackground,
+            ink: renderedInk,
+          });
+      }
+    ctx.restore();
     ctx.drawImage(historyCanvas, 0, 0);
     ctx.restore();
   }
@@ -577,16 +698,34 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       redrawFrame = null;
     }
     if (!viewport) return;
+    assets.sync(
+      getScene().content.filter((object) =>
+        boundsIntersect(
+          contentBounds(textContext, selection.displayContent(object)),
+          visibleBounds(viewport!, boardSize())
+        )
+      )
+    );
     const background = currentCanvasBg();
     if (background !== renderBackground) {
       renderBackground = background;
       inkCache.clear();
     }
     applyViewport(ctx, viewport, boardSize(), canvasDpr);
-    renderStrokes(historyCtx, getScene().strokes, viewport, boardSize(), canvasDpr, renderedInk);
+    renderInk(
+      historyCtx,
+      getScene().strokes.map(selection.displayStroke),
+      viewport,
+      boardSize(),
+      canvasDpr,
+      renderedInk
+    );
+    if (currentStroke?.tool === 'eraser') drawStroke(historyCtx, currentStroke, renderedInk);
     copyHistorySurfaceToVisible();
-    if (currentStroke) drawStroke(ctx, currentStroke, renderedInk);
+    if (currentStroke?.tool === 'pen') drawStroke(ctx, currentStroke, renderedInk);
+    shapeTool.paint();
     textTool.paint();
+    selection.paint();
   }
 
   function ensureIroPicker() {
@@ -680,6 +819,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
 
       b.addEventListener('click', () => {
         setInkRaw(hex);
+        shapeTool.flushStyle();
       });
 
       swatchesEl.appendChild(b);
@@ -710,7 +850,8 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     const h = normalizeHex(hex);
     if (!h) return;
     inkRaw = h;
-    localStorage.setItem(LS_INK_RAW, inkRaw);
+    saveText(LS_INK_RAW, inkRaw);
+    selection.updateStyle({ inkRaw });
     activatePenTool({ announce: false });
     applyInk();
 
@@ -729,6 +870,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       rect.width !== canvasCssWidth || rect.height !== canvasCssHeight || dpr !== canvasDpr;
     if (!changed) {
       textTool.reflow();
+      shapeTool.paint();
       return;
     }
     navigation.cancel();
@@ -745,6 +887,8 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       canvas.height = Math.max(1, Math.floor(rect.height * dpr));
       textLayer.width = canvas.width;
       textLayer.height = canvas.height;
+      shapeLayer.width = canvas.width;
+      shapeLayer.height = canvas.height;
       prepareHistorySurface();
     }
 
@@ -761,6 +905,14 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
 
   function start(ev: PointerEvent) {
     if (!boardReady) return;
+    if (tool === 'select') {
+      if (textTool.finish()) selection.start(ev);
+      return;
+    }
+    if (tool === 'shapes') {
+      shapeTool.start(ev);
+      return;
+    }
     if (tool !== 'pen' && tool !== 'eraser') return;
     if (ev.pointerType === 'mouse' && ev.button !== 0) return;
     if (activePointerId !== null && ev.pointerId !== activePointerId) return;
@@ -772,30 +924,63 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     last = pos(ev);
     currentStroke = {
       type: 'stroke',
-      tool,
+      tool: 'eraser',
       size: parseInt(sizeEl.value || '6', 10),
       inkRaw,
       points: [clonePoint(last)],
     };
-    if (tool === 'eraser')
+    if (tool === 'pen')
+      currentStroke = {
+        type: 'stroke',
+        tool: 'pen',
+        id: crypto.randomUUID(),
+        size: currentStroke.size,
+        inkRaw,
+        points: currentStroke.points,
+      };
+    if (currentStroke.tool === 'eraser') {
       currentStroke.erasedTextIds = textTool.erase(last, last, currentStroke.size / 2);
+      currentStroke.erasedShapeIds = shapeTool.erase(last, last, currentStroke.size / 2);
+      drawStroke(historyCtx, currentStroke, renderedInk);
+      copyHistorySurfaceToVisible();
+      return;
+    }
     applyCommandStyle(ctx, currentStroke);
     ctx.beginPath();
     ctx.moveTo(last.x, last.y);
   }
 
   function move(ev: PointerEvent) {
+    if (selection.isDragging()) {
+      selection.move(ev);
+      return;
+    }
+    if (tool === 'shapes') {
+      shapeTool.move(ev);
+      return;
+    }
     if (activePointerId !== null && ev.pointerId !== activePointerId) return;
     if (!drawing || !currentStroke || !last) return;
     const p = pos(ev);
     currentStroke.points.push(clonePoint(p));
-    if (currentStroke.tool === 'eraser')
+    if (currentStroke.tool === 'eraser') {
       currentStroke.erasedTextIds = [
         ...new Set([
           ...(currentStroke.erasedTextIds ?? []),
           ...textTool.erase(last, p, currentStroke.size / 2),
         ]),
       ];
+      currentStroke.erasedShapeIds = [
+        ...new Set([
+          ...(currentStroke.erasedShapeIds ?? []),
+          ...shapeTool.erase(last, p, currentStroke.size / 2),
+        ]),
+      ];
+      drawStroke(historyCtx, currentStroke, renderedInk);
+      copyHistorySurfaceToVisible();
+      last = p;
+      return;
+    }
     applyCommandStyle(ctx, currentStroke);
 
     const mx = (last.x + p.x) / 2;
@@ -820,31 +1005,40 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     if (currentStroke) {
       if (commit) {
         pushHistoryCommand(currentStroke);
-        drawCommandToContext(historyCtx, currentStroke);
         queueBoardPersistence();
       }
       currentStroke = null;
       textTool.clearErasePreview();
-      copyHistorySurfaceToVisible();
+      shapeTool.clearErasePreview();
+      redrawCanvas();
     }
     return true;
   }
 
   function end(ev: PointerEvent) {
+    if (selection.isDragging()) {
+      selection.end(ev);
+      return;
+    }
+    if (tool === 'shapes') {
+      shapeTool.end(ev);
+      return;
+    }
     if (!drawing) return;
     if (!finishStroke({ commit: true, ev })) return;
     setStatus(t('draftUpdated'));
   }
 
   function clear() {
-    if (!textTool.finish()) return;
+    if (!contentTool.finish() || !textTool.finish()) return;
+    contentTool.closePicker();
+    shapeTool.flushStyle();
+    navigation.cancel();
     finishStroke({ commit: false });
 
     if (commandHistory.length === 0) {
       redoHistory.length = 0;
-      clearSurface(historyCtx);
-      copyHistorySurfaceToVisible();
-      textTool.paint();
+      redrawCanvas();
       syncHistoryButtons();
       queueBoardPersistence();
       setStatus(t('cleared'));
@@ -852,18 +1046,22 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     }
 
     pushHistoryCommand({ type: 'clear' });
-    drawCommandToContext(historyCtx, { type: 'clear' });
-    copyHistorySurfaceToVisible();
-    textTool.paint();
+    redrawCanvas();
     queueBoardPersistence();
     setStatus(t('cleared'));
   }
 
   function undo() {
+    shapeTool.flushStyle();
+    if (contentTool.isEditing()) {
+      contentTool.undo();
+      return;
+    }
     if (textTool.isEditing()) {
       textTool.undo();
       return;
     }
+    navigation.cancel();
     if (!commandHistory.length) return;
     finishStroke({ commit: false });
     const command = commandHistory.pop();
@@ -876,18 +1074,22 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   }
 
   function redo() {
+    shapeTool.flushStyle();
+    if (contentTool.isEditing()) {
+      contentTool.redo();
+      return;
+    }
     if (textTool.isEditing()) {
       textTool.redo();
       return;
     }
+    navigation.cancel();
     if (!redoHistory.length) return;
     finishStroke({ commit: false });
     const command = redoHistory.pop();
     if (!command) return;
     pushHistoryCommand(command, { clearRedo: false });
-    drawCommandToContext(historyCtx, command);
-    copyHistorySurfaceToVisible();
-    textTool.paint();
+    redrawCanvas();
     queueBoardPersistence();
     setStatus(t('redo'));
   }
@@ -947,16 +1149,30 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   }
 
   async function exportCanvasAsPng() {
-    const exported = createDrawingCanvas(getScene(), boardSize(), currentCanvasBg(), renderedInk);
-    return {
-      fileBlob: await canvasToPngBlob(exported.canvas),
-      fileName: 'drawing.png',
-      reduced: exported.reduced,
-    };
+    const scene = getScene();
+    const exportAssets = createAssetCache(() => {});
+    try {
+      await exportAssets.prepare(scene.content);
+      const exported = createDrawingCanvas(
+        scene,
+        boardSize(),
+        currentCanvasBg(),
+        renderedInk,
+        exportAssets
+      );
+      return {
+        fileBlob: await canvasToPngBlob(exported.canvas),
+        fileName: 'drawing.png',
+        reduced: exported.reduced,
+      };
+    } finally {
+      exportAssets.clear();
+    }
   }
 
   async function downloadDrawingAsPng() {
-    if (!textTool.finish()) return;
+    if (!contentTool.finish() || !textTool.finish()) return;
+    shapeTool.flushStyle();
     if (saveBusy) return;
     finishStroke({ commit: true });
     navigation.cancel();
@@ -992,13 +1208,18 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     view: () => viewport ?? initialViewport(boardSize()),
     size: boardSize,
     change: changeViewport,
-    locked: () => drawing || textTool.isDragging(),
-    beforeNavigate: () => textTool.finish(),
+    locked: () => drawing || textTool.isDragging() || shapeTool.isBusy() || contentTool.isBusy(),
+    beforeNavigate: () => {
+      shapeTool.flushStyle();
+      return textTool.finish();
+    },
     start,
     move,
     end,
     cancelStroke: () => {
       finishStroke({ commit: false });
+      shapeTool.cancel();
+      selection.cancel();
     },
     textTap: (event) => {
       textTool.pointerDown(event);
@@ -1011,28 +1232,54 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   canvas.addEventListener('dragstart', (e) => e.preventDefault());
   document.addEventListener('selectstart', preventSelectionWhileDrawing);
 
-  function selectTool(next: BoardTool) {
-    if (!textTool.activate(next === 'text')) return;
+  function selectTool(next: BoardTool): boolean {
+    if (!contentTool.finish() || !textTool.activate(next === 'text')) return false;
+    contentTool.closePicker();
     finishStroke({ commit: true });
     navigation.cancel();
+    shapeTool.activate(next === 'shapes');
+    if (
+      next !== 'select' &&
+      !(next === 'shapes' && selection.current()?.kind === 'shape') &&
+      !(next === 'text' && selection.current()?.kind === 'text')
+    )
+      selection.clear();
     tool = next;
     setActive();
     canvas.focus({ preventScroll: true });
+    return true;
   }
-  textBtn.addEventListener('click', () => selectTool('text'));
+  textBtn.addEventListener('click', () => {
+    if (contentTool.isPickerOpen()) {
+      contentTool.closePicker(true);
+      return;
+    }
+    if (selectTool('select')) {
+      shapeTool.activate(false);
+      contentTool.togglePicker();
+    }
+  });
+  shapesBtn.addEventListener('click', () => {
+    selectTool('shapes');
+    if (tool === 'shapes') shapeTool.togglePicker();
+  });
   penBtn.addEventListener('click', () => selectTool('pen'));
   eraseBtn.addEventListener('click', () => selectTool('eraser'));
   handBtn.addEventListener('click', () => selectTool('hand'));
+  selectBtn.addEventListener('click', () => selectTool('select'));
   function zoomFromControl(zoom: number) {
     if (
       !boardReady ||
       navigation.isBusy() ||
       drawing ||
       textTool.isDragging() ||
+      shapeTool.isBusy() ||
+      contentTool.isBusy() ||
       !textTool.finish() ||
       !viewport
     )
       return;
+    shapeTool.flushStyle();
     changeViewport(
       zoomAt(viewport, zoom, { x: canvasCssWidth / 2, y: canvasCssHeight / 2 }, boardSize())
     );
@@ -1046,6 +1293,8 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       !navigation.isBusy() &&
       !drawing &&
       !textTool.isDragging() &&
+      !shapeTool.isBusy() &&
+      !contentTool.isBusy() &&
       textTool.finish()
     )
       fitDrawing();
@@ -1054,6 +1303,10 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   redoBtn?.addEventListener('click', redo);
 
   sizeEl.addEventListener('input', syncSizePreview);
+  sizeEl.addEventListener('change', () => shapeTool.flushStyle());
+  hexInput.addEventListener('change', () => shapeTool.flushStyle());
+  document.addEventListener('pointerup', () => shapeTool.flushStyle());
+  colorPopup?.addEventListener('keyup', () => shapeTool.flushStyle());
 
   clearBtn.addEventListener('click', clear);
   saveBtn.addEventListener('click', () => {
@@ -1080,9 +1333,27 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   document.addEventListener('i18n:change', syncViewportControls);
   document.addEventListener('keydown', (event) => {
     if (event.defaultPrevented || event.isComposing) return;
+    if (contentTool.handleKey(event)) return;
+    if (shapeTool.handleKey(event)) return;
+    if (selection.handleKey(event)) return;
     if (navigation.handleKey(event)) return;
     if (textTool.handleKey(event)) return;
     if (isEditableElement(document.activeElement)) return;
+    if (
+      event.key.toLowerCase() === 'v' &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      (event.target === canvas ||
+        (event.target instanceof Element &&
+          Boolean(
+            event.target.closest('.board-navigation, .object-selection-actions, .object-selection')
+          )))
+    ) {
+      event.preventDefault();
+      selectTool('select');
+      return;
+    }
     if (!(event.ctrlKey || event.metaKey)) return;
 
     const key = event.key.toLowerCase();
@@ -1116,6 +1387,8 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   void hydrateBoardDrawing().finally(() => {
     boardReady = true;
     textBtn.disabled = false;
+    shapesBtn.disabled = false;
+    selectBtn.disabled = false;
     if (textTool.recover()) {
       tool = 'text';
       setActive({ announce: false });

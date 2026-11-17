@@ -1,3 +1,4 @@
+import { chooseObject } from '../helpers/object-picker.js';
 import { test, expect } from '@playwright/test';
 
 const viewportKey = 'vatio_board_viewport_v1';
@@ -47,7 +48,7 @@ async function expectScreenLayout(page) {
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('button', { name: 'Text', exact: true })).toBeEnabled();
+  await expect(page.locator('#text')).toBeEnabled();
 });
 
 for (const [width, height] of [
@@ -81,7 +82,7 @@ test('clamps old saved views and every interactive zoom path to 50%', async ({ p
     { center, viewportKey }
   );
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Text', exact: true })).toBeEnabled();
+  await expect(page.locator('#text')).toBeEnabled();
   await expect(page.locator('#zoomReset')).toHaveText('50%');
   expect(
     await page.evaluate(async () => (await import('/src/board/viewport.ts')).loadViewport())
@@ -116,6 +117,7 @@ test('clamps old saved views and every interactive zoom path to 50%', async ({ p
       commands: [
         {
           type: 'stroke',
+          id: 'wide-line',
           tool: 'pen',
           size: 2,
           inkRaw: '#111827',
@@ -129,7 +131,7 @@ test('clamps old saved views and every interactive zoom path to 50%', async ({ p
     });
   });
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Text', exact: true })).toBeEnabled();
+  await expect(page.locator('#text')).toBeEnabled();
   await page.getByRole('button', { name: 'Fit drawing', exact: true }).click();
   await expect(page.locator('#zoomReset')).toHaveText('50%');
   await expect(page.locator('#status')).toContainText('Pan to see the rest');
@@ -176,8 +178,8 @@ for (const [width, height] of [
     page,
   }) => {
     await page.setViewportSize({ width, height });
-    await page.getByRole('button', { name: 'Text', exact: true }).click();
-    await page.locator('#pad').click({ position: { x: 20, y: 20 } });
+    await chooseObject(page, 'text');
+    await page.locator('#pad').click({ position: { x: 8, y: 20 } });
     const root = page.locator('notectl-editor');
     const input = root.getByRole('textbox');
     await input.evaluate((element) => {
@@ -249,7 +251,7 @@ test('follows visual viewport changes without scrolling or rewriting drawing coo
   });
   await page.setViewportSize({ width: 390, height: 640 });
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Text', exact: true })).toBeEnabled();
+  await expect(page.locator('#text')).toBeEnabled();
   await page.locator('#pad').click({ position: { x: 30, y: 30 } });
   await expect
     .poll(() =>

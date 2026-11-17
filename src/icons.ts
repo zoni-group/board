@@ -1,3 +1,5 @@
+export const IconSelect =
+  '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 3 14 10-7 1-3 7-4-18Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>';
 export const IconCalculator = `
   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <path d="M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.6"/>
@@ -168,6 +170,10 @@ export const IconPlay = `
   </svg>
 `;
 
+export const IconImage = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="2" stroke="currentColor" stroke-width="1.6"/><circle cx="9" cy="9" r="1.5" fill="currentColor"/><path d="m4 17 5-5 4 4 3-3 4 4" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+export const IconTable = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M4 9h16M4 14.5h16M10 9v11M15.5 9v11" stroke="currentColor" stroke-width="1.5"/></svg>`;
+export const IconVideo = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="m10 8 6 4-6 4z" fill="currentColor"/></svg>`;
+
 export const IconPause = `
   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <rect x="7" y="6.5" width="3.5" height="11" rx="1.2" fill="currentColor"/>
@@ -191,6 +197,15 @@ export const IconWorld = `
 `;
 
 export const IconText = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 6V4h14v2M12 4v16M8 20h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+export const ShapeIcons = {
+  rectangle:
+    '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="1" stroke="currentColor" stroke-width="1.8"/></svg>',
+  ellipse:
+    '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><ellipse cx="12" cy="12" rx="8" ry="6" stroke="currentColor" stroke-width="1.8"/></svg>',
+  line: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20 20 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  arrow:
+    '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20 20 4M9 4h11v11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
 export const IconHand = `
   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <path d="M8 12V6a1.5 1.5 0 0 1 3 0v5-7a1.5 1.5 0 0 1 3 0v7-6a1.5 1.5 0 0 1 3 0v7-4a1.5 1.5 0 0 1 3 0v7c0 4-2 6-6 6h-1c-2 0-3-1-4-2l-5-6a1.5 1.5 0 0 1 2-2l2 2Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>

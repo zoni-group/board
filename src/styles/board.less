@@ -1077,6 +1077,62 @@ html.has-iro .color-popup-card{
   background: transparent;
   pointer-events: none;
 }
+.board-shape-layer {
+  position:absolute;
+  inset:0;
+  background:transparent;
+  pointer-events:none;
+}
+#pad.shapes-tool-active { cursor:crosshair; }
+.shape-picker, .shape-selection-actions {
+  position:fixed;
+  z-index:30;
+  padding:4px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:var(--surface);
+  box-shadow:var(--shadow);
+}
+.shape-picker {
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:4px;
+  width:260px;
+  overscroll-behavior:contain;
+  touch-action:pan-y;
+}
+.shape-picker button {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-height:44px;
+  padding:8px;
+  font-size:13px;
+}
+.shape-selection-actions { display:flex; gap:4px; }
+.shape-selection-actions button { min-height:36px; padding:6px 10px; font-size:12px; }
+.shape-picker[hidden], .shape-selection-actions[hidden] { display:none; }
+.object-picker button { position:relative; }
+#text::after { content:''; position:absolute; right:5px; bottom:7px; border:3px solid transparent; border-top-color:currentColor; transform:translateY(3px); }
+#text { position:relative; }
+.board-content-panel {
+  position:fixed; z-index:50; display:flex; flex-direction:column;
+  border:1px solid var(--border); border-radius:10px; background:var(--surface);
+  color:var(--btn-fg); box-shadow:var(--shadow); overflow:hidden; touch-action:auto;
+}
+.board-content-panel h2 { font-size:15px; margin:0; padding:10px 12px; flex-shrink:0; }
+.board-content-body { padding:12px; min-height:0; overflow:auto; overscroll-behavior:contain; touch-action:auto; }
+.board-content-body p { font-size:13px; margin:8px 0; }
+.content-panel-actions { display:flex; flex-shrink:0; gap:6px; padding:6px 12px; border-top:1px solid var(--border); }
+.content-panel-actions button, .board-content-body > button { min-height:36px; padding:6px 12px; font-size:13px; }
+.content-form { display:flex; flex-wrap:wrap; gap:12px; }
+.content-form label { display:flex; flex:1 1 110px; flex-direction:column; gap:6px; font-size:13px; }
+.content-form input { width:100%; min-width:0; padding:8px; border:1px solid var(--border); border-radius:6px; background:var(--canvas-bg); color:var(--btn-fg); font:inherit; user-select:text; }
+.board-table-editor .board-content-body { padding:0; }
+.board-table-editor notectl-editor { display:block; width:100%; }
+.board-video-player video, .board-video-player iframe { display:block; width:100%; max-height:50dvh; aspect-ratio:16/9; border:0; background:#000; }
+.board-short-viewport .board-content-panel h2 { padding:4px 8px; font-size:13px; }
+.board-short-viewport .content-panel-actions { padding:4px 8px; }
 #pad.text-tool-active {
   cursor: text;
 }
@@ -1144,6 +1200,37 @@ html.has-iro .color-popup-card{
   pointer-events: none;
   z-index: 3;
 }
+.object-selection {
+  position:absolute;
+  border:1px dashed var(--btn-fg);
+  pointer-events:none;
+  z-index:3;
+}
+.object-selection-handle {
+  position:absolute;
+  width:10px;
+  height:10px;
+  border:1px solid var(--btn-fg);
+  background:var(--canvas-bg);
+  transform:translate(-50%, -50%);
+}
+.object-selection-actions {
+  position:fixed;
+  z-index:30;
+  display:flex;
+  gap:4px;
+  padding:4px;
+  width:max-content;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:var(--surface);
+  box-shadow:var(--shadow);
+}
+.object-selection-actions button { min-height:36px; padding:6px 10px; font-size:12px; }
+.object-selection-actions button[hidden], .object-selection-handle[hidden],
+.object-selection[hidden], .object-selection-actions[hidden] { display:none; }
+.object-selection-actions .selection-move { cursor:move; touch-action:none; }
+#pad.select-tool-active { cursor:default; }
 .text-selection-actions,
 .text-editor-actions {
   display: flex;
@@ -1215,8 +1302,12 @@ html.has-iro .color-popup-card{
 }
 @media (max-width: 430px) {
   .board-action-strip {
-    --board-action-hit-width: 44px;
+    --board-action-hit-width: min(44px, calc((100vw - 10px) / 8));
   }
+}
+@media (max-width:900px) {
+  .header-inner > .brand { display:none; }
+  .size-label { padding-right:10px; }
 }
 
 .short-board-layout() {

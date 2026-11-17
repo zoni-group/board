@@ -76,7 +76,8 @@ export function toEditorDocument(object: TextObject): EditorDocument {
 export function fromEditorDocument(
   doc: EditorDocument,
   object: TextObject,
-  inkRaw: string
+  inkRaw: string,
+  defaultSize = DEFAULT_TEXT_SIZE
 ): TextObject {
   return {
     ...object,
@@ -98,7 +99,7 @@ export function fromEditorDocument(
         const sizeMark = child.marks.find((m) => m.type === 'fontSize');
         const colorMark = child.marks.find((m) => m.type === 'textColor');
         const highlightMark = child.marks.find((m) => m.type === 'highlight');
-        const size = Number.parseFloat(String(sizeMark?.attrs?.size ?? DEFAULT_TEXT_SIZE));
+        const size = Number.parseFloat(String(sizeMark?.attrs?.size ?? defaultSize));
         const color = normalizeHexColor(colorMark?.attrs?.color) ?? inkRaw;
         const highlightRaw = normalizeHexColor(highlightMark?.attrs?.color);
         const style = {
