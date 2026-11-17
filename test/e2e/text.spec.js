@@ -47,6 +47,57 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Text', exact: true })).toBeEnabled();
 });
 
+for (const [language, placeholder] of [
+  ['en', 'Type here…'],
+  ['es', 'Escribe aquí…'],
+]) {
+  test(`shows the complete empty-text placeholder in ${language}, including after deleting text`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 500 });
+    await page.evaluate((language) => localStorage.setItem('vatio_board_lang', language), language);
+    await page.reload();
+    await expect(page.locator('#text')).toBeEnabled();
+    await page.locator('#text').click();
+    await page.locator('#pad').click({ position: { x: 80, y: 150 } });
+    const input = await editor(page);
+    await expect(input).toBeVisible();
+    async function expectPlaceholderFits() {
+      await expect(input).toHaveAttribute('data-placeholder', placeholder);
+      await expect
+        .poll(() =>
+          input.evaluate((element) => {
+            const hint = getComputedStyle(element, '::before');
+            const width = Number.parseFloat(hint.width);
+            const body = element.getRootNode().host.parentElement;
+            return (
+              element.classList.contains('notectl-content--empty') &&
+              Number.isFinite(width) &&
+              width > 0 &&
+              element.clientWidth >= width + Number.parseFloat(hint.left) &&
+              body.scrollWidth <= body.clientWidth
+            );
+          })
+        )
+        .toBe(true);
+    }
+    for (const colorScheme of ['dark', 'light']) {
+      await page.emulateMedia({ colorScheme });
+      await expectPlaceholderFits();
+    }
+    await input.pressSequentially('T');
+    await expect(input).not.toHaveClass(/notectl-content--empty/);
+    await expect(input).toHaveText('T');
+    await input.press('Backspace');
+    await expectPlaceholderFits();
+    await input.pressSequentially('Hello');
+    await page.locator('.text-editor-actions button').first().click();
+    await expect
+      .poll(async () => (await objects(page))[0]?.paragraphs[0].runs[0].text)
+      .toBe('Hello');
+  });
+}
+
 test('highlights selected words, changes and removes colors, and highlights subsequent typing', async ({
   page,
 }) => {

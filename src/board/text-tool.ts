@@ -124,8 +124,12 @@ export function createTextTool(options: TextToolOptions) {
     const { bounds } = layoutText(context, object);
     const rect = canvas.getBoundingClientRect();
     const area = panelArea();
-    const contentWidth = Math.min(bounds.width + 2, area.width);
-    const width = Math.max(Math.min(340, area.width), contentWidth);
+    const minimumWidth = Math.min(340, area.width);
+    // Empty text has only caret-sized bounds; fit its hint inside the editor, including borders.
+    const contentWidth = isEmptyText(object)
+      ? minimumWidth - 2
+      : Math.min(bounds.width + 2, area.width);
+    const width = Math.max(minimumWidth, contentWidth);
     host.style.width = `${width}px`;
     host.style.maxHeight = `${area.height}px`;
     session.element.style.setProperty('--board-text-width', `${Math.max(24, contentWidth)}px`);
