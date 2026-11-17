@@ -351,8 +351,11 @@ test('moves with the handle, cancels pointer drags, and deletes selected text', 
     clientY: 170,
     button: 0,
   });
-  await handle.dispatchEvent('pointermove', { pointerId: 77, clientX: 180, clientY: 200 });
-  await handle.dispatchEvent('pointercancel', { pointerId: 77 });
+  // The shared pointer router captures movement on the board after grabbing Move.
+  await page
+    .locator('#pad')
+    .dispatchEvent('pointermove', { pointerId: 77, clientX: 180, clientY: 200 });
+  await page.locator('#pad').dispatchEvent('pointercancel', { pointerId: 77 });
   expect((await objects(page))[0]?.position).toEqual({ x: 150, y: 170 });
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect.poll(async () => (await objects(page)).length).toBe(0);
@@ -472,7 +475,7 @@ test('retains recovery data when a board save fails, and allows retrying an unch
     Object.defineProperty(window, 'indexedDB', { value: undefined });
     const setItem = Storage.prototype.setItem;
     Storage.prototype.setItem = function (key, value) {
-      if (key === 'vatio_board_drawing_v3' && !window.allowBoardSave)
+      if (key === 'vatio_board_drawing_v4' && !window.allowBoardSave)
         throw new DOMException('Quota exceeded', 'QuotaExceededError');
       return setItem.call(this, key, value);
     };

@@ -5,7 +5,8 @@ import { BOARD_SCHEMA_VERSION, isFiniteNumber, isRecord, normalizeCommands } fro
 import type { BoardCommand, BoardDrawing, BoardSnapshot } from './model.ts';
 
 export { BOARD_SCHEMA_VERSION } from './model.ts';
-export const BOARD_DRAWING_KEY = 'vatio_board_drawing_v3';
+export const BOARD_DRAWING_KEY = 'vatio_board_drawing_v4';
+export const SHAPES_BOARD_DRAWING_KEY = 'vatio_board_drawing_v3';
 export const PREVIOUS_BOARD_DRAWING_KEY = 'vatio_board_drawing_v2';
 export const LEGACY_BOARD_DRAWING_KEY = 'vatio_board_drawing_v1';
 export const BOARD_PERSIST_CHUNK_SIZE = 100;
@@ -15,7 +16,7 @@ const BOARD_DB_VERSION = 1;
 const BOARD_DB_STORE = 'boardRecords';
 const BOARD_HISTORY_SECTION = 'history';
 const BOARD_REDO_SECTION = 'redo';
-export const BOARD_CHUNK_KEY_PREFIX = 'boardChunk:v3:';
+export const BOARD_CHUNK_KEY_PREFIX = 'boardChunk:v4:';
 
 const boardStore = createIndexedJsonKeyValueStore({
   dbName: BOARD_DB_NAME,
@@ -53,10 +54,13 @@ function normalizePositiveInteger(value: unknown, fallback = 0): number {
   return Math.max(0, Math.round(value));
 }
 
-function createStoredDocument(value: unknown): StoredBoardDocument {
+function createStoredDocument(value: unknown, legacyPrefix?: string): StoredBoardDocument {
   const document = isRecord(value) ? value : {};
-  const commands = normalizeCommands(document.commands);
-  const redoCommands = normalizeCommands(document.redoCommands);
+  const commands = normalizeCommands(document.commands, legacyPrefix && `${legacyPrefix}-history`);
+  const redoCommands = normalizeCommands(
+    document.redoCommands,
+    legacyPrefix && `${legacyPrefix}-redo`
+  );
 
   return {
     version: BOARD_SCHEMA_VERSION,
@@ -242,7 +246,12 @@ async function loadCommandChunks(
       };
     }
 
-    const normalizedChunk = normalizeCommands(chunk);
+    const normalizedChunk = normalizeCommands(
+      chunk,
+      prefix === BOARD_CHUNK_KEY_PREFIX
+        ? undefined
+        : `legacy-${prefix}${generation}-${section}-${chunkIndex}`
+    );
     if (normalizedChunk.length !== chunk.length) {
       return {
         ok: false,
@@ -344,6 +353,7 @@ async function migrateLegacyBoardStorage(): Promise<void> {
         return;
       }
       for (const [key, prefix] of [
+        [SHAPES_BOARD_DRAWING_KEY, 'boardChunk:v3:'],
         [PREVIOUS_BOARD_DRAWING_KEY, 'boardChunk:v2:'],
         [LEGACY_BOARD_DRAWING_KEY, 'boardChunk:'],
       ]) {
@@ -353,7 +363,8 @@ async function migrateLegacyBoardStorage(): Promise<void> {
           : null;
         const legacy = indexedDrawing ?? loadJson(key);
         if (isRecord(legacy)) {
-          legacyMigrationDrawing = toBoardDrawing(legacy);
+          legacyMigrationDrawing = await hydrateStoredBoardDrawing(legacy, prefix);
+          if (!legacyMigrationDrawing) continue;
           await persistBoardDocument(legacyMigrationDrawing);
           break;
         }
@@ -417,7 +428,10 @@ async function hydrateStoredBoardDrawing(
   document: unknown,
   prefix = BOARD_CHUNK_KEY_PREFIX
 ): Promise<BoardDrawing | null> {
-  const normalized = createStoredDocument(document);
+  const normalized = createStoredDocument(
+    document,
+    prefix === BOARD_CHUNK_KEY_PREFIX ? undefined : `legacy-${prefix}embedded`
+  );
 
   if (!hasPersistedSnapshot(createSnapshotReference(normalized))) {
     return toBoardDrawing(normalized);

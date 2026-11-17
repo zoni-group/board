@@ -1179,6 +1179,37 @@ html.has-iro .color-popup-card{
   pointer-events: none;
   z-index: 3;
 }
+.object-selection {
+  position:absolute;
+  border:1px dashed var(--btn-fg);
+  pointer-events:none;
+  z-index:3;
+}
+.object-selection-handle {
+  position:absolute;
+  width:10px;
+  height:10px;
+  border:1px solid var(--btn-fg);
+  background:var(--canvas-bg);
+  transform:translate(-50%, -50%);
+}
+.object-selection-actions {
+  position:fixed;
+  z-index:30;
+  display:flex;
+  gap:4px;
+  padding:4px;
+  width:max-content;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:var(--surface);
+  box-shadow:var(--shadow);
+}
+.object-selection-actions button { min-height:36px; padding:6px 10px; font-size:12px; }
+.object-selection-actions button[hidden], .object-selection-handle[hidden],
+.object-selection[hidden], .object-selection-actions[hidden] { display:none; }
+.object-selection-actions .selection-move { cursor:move; touch-action:none; }
+#pad.select-tool-active { cursor:default; }
 .text-selection-actions,
 .text-editor-actions {
   display: flex;

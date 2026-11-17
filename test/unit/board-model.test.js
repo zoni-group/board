@@ -19,6 +19,7 @@ describe('board command validation', () => {
     expect(
       normalizeCommand({
         type: 'stroke',
+        id: 'pen-1',
         tool: 'unsupported',
         size: Infinity,
         inkRaw: null,
@@ -32,6 +33,7 @@ describe('board command validation', () => {
       })
     ).toEqual({
       type: 'stroke',
+      id: 'pen-1',
       tool: 'pen',
       size: 6,
       inkRaw: '#111827',

@@ -116,6 +116,7 @@ test('clamps old saved views and every interactive zoom path to 50%', async ({ p
       commands: [
         {
           type: 'stroke',
+          id: 'wide-line',
           tool: 'pen',
           size: 2,
           inkRaw: '#111827',
@@ -177,7 +178,7 @@ for (const [width, height] of [
   }) => {
     await page.setViewportSize({ width, height });
     await page.getByRole('button', { name: 'Text', exact: true }).click();
-    await page.locator('#pad').click({ position: { x: 20, y: 20 } });
+    await page.locator('#pad').click({ position: { x: 8, y: 20 } });
     const root = page.locator('notectl-editor');
     const input = root.getByRole('textbox');
     await input.evaluate((element) => {

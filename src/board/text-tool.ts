@@ -20,9 +20,12 @@ import { panelArea } from './screen-layout.ts';
 import { clearTextDraft, loadTextDraft, recoverTextDraft, saveTextDraft } from './text-draft.ts';
 import type { TextDraft } from './text-draft.ts';
 import type { TextEditorSession } from './text-editor.ts';
+import type { SelectionController } from './selection.ts';
 
 interface TextToolOptions {
   canvas: HTMLCanvasElement;
+  selection: SelectionController;
+  selecting(): boolean;
   layer: HTMLCanvasElement;
   context: CanvasRenderingContext2D;
   getObjects(): TextObject[];
@@ -45,25 +48,6 @@ function loadEditor() {
 
 export function createTextTool(options: TextToolOptions) {
   const { canvas, layer, context } = options;
-  const parent = canvas.parentElement;
-  if (!parent) throw new Error('Missing board frame');
-  const frame = parent;
-  const selection = document.createElement('div');
-  selection.id = 'textSelection';
-  selection.className = 'text-selection';
-  selection.hidden = true;
-  selection.tabIndex = 0;
-  selection.setAttribute('role', 'group');
-  const move = document.createElement('button'),
-    edit = document.createElement('button'),
-    remove = document.createElement('button');
-  move.type = edit.type = remove.type = 'button';
-  const tools = document.createElement('div');
-  tools.className = 'text-selection-actions';
-  tools.hidden = true;
-  tools.append(move, edit, remove);
-  document.body.append(tools);
-  frame.append(selection);
   const host = document.createElement('div');
   host.className = 'board-text-editor';
   host.hidden = true;
@@ -77,31 +61,26 @@ export function createTextTool(options: TextToolOptions) {
   actions.className = 'text-editor-actions';
   actions.append(done, cancel);
   let active = false,
-    selectedId: string | null = null,
     generation = 0,
     loading = false;
   let session: TextEditorSession | null = null,
     draft: TextDraft | null = null;
   let timer: number | undefined,
     composing = false;
-  let drag: { pointer: number; start: Point; original: TextObject; object: TextObject } | null =
-    null;
   const erased = new Set<string>();
 
   function labels() {
-    move.textContent = t('moveText');
-    edit.textContent = t('editText');
-    remove.textContent = t('deleteText');
     done.textContent = t('doneText');
     cancel.textContent = t('cancelText');
-    move.setAttribute('aria-label', t('moveText'));
-    selection.setAttribute('aria-label', t('selectedText'));
     session?.configure(getLang(), window.matchMedia('(prefers-color-scheme: dark)').matches);
   }
   labels();
 
   function selected() {
-    return options.getObjects().find((object) => object.id === selectedId);
+    const ref = options.selection.current();
+    return ref?.kind === 'text'
+      ? options.getObjects().find((object) => object.id === ref.id)
+      : undefined;
   }
   function size() {
     const rect = canvas.getBoundingClientRect();
@@ -126,59 +105,11 @@ export function createTextTool(options: TextToolOptions) {
     for (const object of options.getObjects()) {
       if (erased.has(object.id) || (draft?.object.id === object.id && (session || loading)))
         continue;
-      const displayed = drag?.object.id === object.id ? drag.object : object;
+      const displayed = options.selection.displayText(object);
       const layout = cachedTextLayout(context, displayed);
       if (boundsIntersect(layout.bounds, visible)) drawText(context, displayed, layout);
     }
-    const object = drag?.object ?? selected();
-    selection.hidden = !active || !object || Boolean(session || loading) || erased.has(object.id);
-    if (object) {
-      const layout = cachedTextLayout(context, object);
-      selection.hidden ||= !boundsIntersect(layout.bounds, visible);
-      tools.hidden = selection.hidden;
-      const bounds = {
-        ...worldToScreen(layout.bounds, boardView, size()),
-        width: layout.bounds.width * boardView.zoom,
-        height: layout.bounds.height * boardView.zoom,
-      };
-      Object.assign(selection.style, {
-        left: `${bounds.x}px`,
-        top: `${bounds.y}px`,
-        width: `${bounds.width}px`,
-        height: `${bounds.height}px`,
-      });
-      const view = canvas.getBoundingClientRect();
-      const clip = frame.getBoundingClientRect();
-      const controls = tools.getBoundingClientRect();
-      const viewport = window.visualViewport;
-      const left = Math.max(view.left, clip.left, viewport?.offsetLeft ?? 0) + 4;
-      let top =
-        Math.max(
-          view.top,
-          clip.top,
-          viewport?.offsetTop ?? 0,
-          document.querySelector('header')?.getBoundingClientRect().bottom ?? 0
-        ) + 4;
-      const right =
-        Math.min(
-          view.right,
-          clip.right,
-          (viewport?.offsetLeft ?? 0) + (viewport?.width ?? window.innerWidth)
-        ) - 4;
-      const bottom =
-        Math.min(
-          view.bottom,
-          clip.bottom,
-          (document.querySelector('.board-navigation')?.getBoundingClientRect().top ?? Infinity) -
-            8,
-          (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight)
-        ) - 4;
-      if (bottom - top < controls.height) top = (viewport?.offsetTop ?? 0) + 4;
-      const desiredY = view.top + (bounds.y < 42 ? bounds.y + bounds.height + 4 : bounds.y - 38);
-      tools.style.top = `${Math.max(top, Math.min(desiredY, bottom - controls.height))}px`;
-      tools.style.left = `${Math.max(left, Math.min(view.left + bounds.x, right - controls.width))}px`;
-    }
-    tools.hidden = selection.hidden;
+    options.selection.paint();
   }
   function flushDraft() {
     window.clearTimeout(timer);
@@ -241,9 +172,9 @@ export function createTextTool(options: TextToolOptions) {
     const object = session.read();
     draft = null;
     closeEditor();
-    selectedId = isEmptyText(object) ? null : object.id;
     if (isEmptyText(object) && !current.original) {
       clearTextDraft(current.token);
+      options.selection.clear();
       paint();
       return true;
     }
@@ -252,6 +183,7 @@ export function createTextTool(options: TextToolOptions) {
         if (ok) clearTextDraft(current.token);
         else options.status(t('textSaveFailed'));
       });
+      options.selection.select({ kind: 'text', id: object.id });
       paint();
       return true;
     }
@@ -263,6 +195,7 @@ export function createTextTool(options: TextToolOptions) {
       if (ok) clearTextDraft(current.token);
       else options.status(t('textSaveFailed'));
     });
+    options.selection.select(isEmptyText(object) ? null : { kind: 'text', id: object.id });
     paint();
     return true;
   }
@@ -293,7 +226,7 @@ export function createTextTool(options: TextToolOptions) {
     if (!finish()) return;
     const ticket = ++generation;
     loading = true;
-    selectedId = object.id;
+    options.selection.select(original ? { kind: 'text', id: object.id } : null);
     const previousDraft = loadTextDraft();
     if (
       original &&
@@ -311,7 +244,7 @@ export function createTextTool(options: TextToolOptions) {
     options.status(t('loadingText'));
     try {
       const module = await loadEditor();
-      if (ticket !== generation || !active) return;
+      if (ticket !== generation) return;
       const mounted = await module.mountTextEditor(
         object,
         options.ink(),
@@ -319,7 +252,7 @@ export function createTextTool(options: TextToolOptions) {
         window.matchMedia('(prefers-color-scheme: dark)').matches,
         changed
       );
-      if (ticket !== generation || !active) {
+      if (ticket !== generation) {
         mounted.destroy();
         return;
       }
@@ -360,68 +293,6 @@ export function createTextTool(options: TextToolOptions) {
         )
       );
   }
-  function deleteSelected() {
-    const object = selected();
-    if (!object) return;
-    selectedId = null;
-    void options.commit({ type: 'text-delete', ids: [object.id] }).then((ok) => {
-      if (!ok) options.status(t('textSaveFailed'));
-    });
-    paint();
-    canvas.focus({ preventScroll: true });
-  }
-  function stopDrag(commit: boolean) {
-    if (!drag) return;
-    const current = drag;
-    drag = null;
-    try {
-      move.releasePointerCapture(current.pointer);
-    } catch {
-      /* Already released. */
-    }
-    if (
-      commit &&
-      (current.object.position.x !== current.original.position.x ||
-        current.object.position.y !== current.original.position.y)
-    )
-      void options.commit({ type: 'text-set', object: current.object });
-    paint();
-  }
-  move.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0 || drag) return;
-    const object = selected();
-    if (!object) return;
-    event.preventDefault();
-    drag = {
-      pointer: event.pointerId,
-      start: { x: event.clientX, y: event.clientY },
-      original: cloneTextObject(object),
-      object: cloneTextObject(object),
-    };
-    try {
-      move.setPointerCapture(event.pointerId);
-    } catch {
-      /* Capture may be unavailable during cancellation. */
-    }
-  });
-  move.addEventListener('pointermove', (event) => {
-    if (!drag || event.pointerId !== drag.pointer) return;
-    drag.object.position = {
-      x: drag.original.position.x + (event.clientX - drag.start.x) / options.getViewport().zoom,
-      y: drag.original.position.y + (event.clientY - drag.start.y) / options.getViewport().zoom,
-    };
-    paint();
-  });
-  move.addEventListener('pointerup', (event) => {
-    if (drag?.pointer === event.pointerId) stopDrag(true);
-  });
-  move.addEventListener('pointercancel', () => stopDrag(false));
-  move.addEventListener('lostpointercapture', () => stopDrag(false));
-  edit.addEventListener('click', () => {
-    const object = selected();
-    if (object) void open(object, object);
-  });
-  remove.addEventListener('click', deleteSelected);
   done.addEventListener('click', () => {
     if (finish()) canvas.focus({ preventScroll: true });
   });
@@ -478,7 +349,7 @@ export function createTextTool(options: TextToolOptions) {
     true
   );
   canvas.addEventListener('dblclick', (event) => {
-    if (!active || session || loading) return;
+    if ((!active && !options.selecting()) || session || loading) return;
     const object = hit(worldPoint(event));
     if (object) void open(object, object);
   });
@@ -511,7 +382,7 @@ export function createTextTool(options: TextToolOptions) {
     },
     finish,
     isEditing: () => Boolean(session || loading),
-    isDragging: () => Boolean(drag),
+    isDragging: () => options.selection.isDragging(),
     canUndo: () => session?.canUndo() ?? false,
     canRedo: () => session?.canRedo() ?? false,
     undo: () => {
@@ -526,10 +397,6 @@ export function createTextTool(options: TextToolOptions) {
       if (!value && !finish()) return false;
       active = value;
       canvas.classList.toggle('text-tool-active', active);
-      if (!active) {
-        selectedId = null;
-        stopDrag(false);
-      }
       paint();
       if (active) void loadEditor().catch(() => options.status(t('textLoadFailed')));
       return true;
@@ -541,9 +408,9 @@ export function createTextTool(options: TextToolOptions) {
       const point = worldPoint(event);
       const object = hit(point);
       if (object) {
-        selectedId = object.id;
+        options.selection.select({ kind: 'text', id: object.id });
         paint();
-        selection.focus({ preventScroll: true });
+        document.getElementById('textSelection')?.focus({ preventScroll: true });
       } else create(point);
       return true;
     },
@@ -573,15 +440,13 @@ export function createTextTool(options: TextToolOptions) {
       void open(recovered.object, recovered.original, recovered.token);
       return true;
     },
+    edit(id: string) {
+      const object = options.getObjects().find((object) => object.id === id);
+      if (object) void open(object, object);
+    },
     handleKey(event: KeyboardEvent): boolean {
       if (session || loading) return true;
-      if (!active || event.isComposing) return false;
-      if (event.target !== canvas && event.target !== selection) return false;
-      if (event.key === 'Escape') {
-        selectedId = null;
-        paint();
-        return true;
-      }
+      if (!active || event.isComposing || event.target !== canvas) return false;
       if (event.key === 'Enter') {
         event.preventDefault();
         const object = selected();
@@ -589,31 +454,7 @@ export function createTextTool(options: TextToolOptions) {
         else create(screenToWorld({ x: 32, y: 32 }, options.getViewport(), size()));
         return true;
       }
-      const object = selected();
-      if (!object) return false;
-      if (event.key === 'Delete' || event.key === 'Backspace') {
-        event.preventDefault();
-        deleteSelected();
-        return true;
-      }
-      const delta = event.shiftKey ? 10 : 1;
-      const offsets: Record<string, Point> = {
-        ArrowLeft: { x: -delta, y: 0 },
-        ArrowRight: { x: delta, y: 0 },
-        ArrowUp: { x: 0, y: -delta },
-        ArrowDown: { x: 0, y: delta },
-      };
-      const offset = offsets[event.key];
-      if (!offset) return false;
-      event.preventDefault();
-      const next = cloneTextObject(object);
-      next.position = {
-        x: object.position.x + offset.x,
-        y: object.position.y + offset.y,
-      };
-      if (next.position.x !== object.position.x || next.position.y !== object.position.y)
-        void options.commit({ type: 'text-set', object: next });
-      return true;
+      return false;
     },
   };
 }

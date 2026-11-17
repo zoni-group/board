@@ -101,13 +101,49 @@ Vite bundles the application, while `npm run typecheck` checks types. Production
 including CI and deployment, run the type check before bundling.
 
 `src/board/model.ts` defines the shared drawing commands, snapshots, validation, and cloning.
-Storage reads are treated as unknown until normalized. Version 1 and 2 drawings migrate to isolated
-version 3 metadata and chunks; the original records remain intact for older tabs and rollback.
+Storage reads are treated as unknown until normalized. Version 1–3 drawings migrate to isolated
+version 4 metadata and chunks; the original records remain intact for older tabs and rollback.
+Each pen stroke receives a stable identity, including strokes in redo history. Small edit commands
+record translation and style changes without duplicating or rewriting the original points.
 
 New command types must be handled explicitly in cloning and rendering. Keep drawing points
 in board coordinates (CSS pixels at 100% zoom): zoom transforms input and rendering rather
 than rewrite saved points. TypeScript dependencies are development-only; drawing and storage
 remain local to the browser.
+
+## Selecting and Editing Objects
+
+Choose **Select** (the pointer beside Hand), or press **V** with the board focused. Click or tap
+one pen stroke, text block, or shape to select it. Drag the object to move it; clicking empty
+space deselects. Text is picked above shapes, and shapes above ink, following the drawing's
+visible layer order. Each pen-down/up gesture is one object; freehand drawings with several
+strokes are edited one stroke at a time.
+
+Use **Delete** or Delete/Backspace to remove the selected object. **Done** or Escape deselects;
+Escape during movement or resizing cancels that unfinished change. Arrow keys move by one board
+unit; Shift moves by ten. Existing shape handles and Shift/Alt+arrow resizing work in Select too.
+Selection itself and clicks without movement do not add undo entries. **Clear** still removes the
+whole board, with undo available.
+
+The existing color picker and width slider change a selected pen stroke or shape without leaving
+Select. A continuous adjustment commits one undoable edit. For text, choose **Edit**, press Enter,
+or double-click to use the existing rich-text editor. The brush controls are disabled for text in
+Select; text formatting stays in its editor. Finishing or cancelling the editor returns to Select.
+
+Partial erasing stays with each pen stroke when it moves. Erasing after movement also follows the
+stroke on later moves; other strokes are not affected by that object's masks. Picking tests nearby
+visible ink, so an erased gap does not select an invisible stroke. Fully erased ink can remain in
+history until Clear; Fit bounds remain conservative, as with the existing pixel eraser.
+
+Text's Move/Edit shortcuts and Shapes' drawing/editing interactions remain available through the
+same selection controller. Two-finger navigation cancels unfinished object movement, including
+movement begun with Text's Move handle. Stylus palm rejection, fixed-size controls, local saving,
+undo/redo, Fit and whole-board PNG export apply to all object edits. Selection outlines and handles
+are temporary and never saved or exported.
+
+Selection supports one object at a time. Grouping, box selection, pen/text geometry resizing,
+rotation and new fill/opacity attributes are outside this version's scope. No runtime dependency
+or remote storage is added.
 
 ## Text Tool
 

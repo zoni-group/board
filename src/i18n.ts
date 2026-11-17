@@ -8,6 +8,10 @@ import { loadText, saveText } from './shared/storage.ts';
 export type Language = 'en' | 'es';
 
 const english = {
+  select: 'Select',
+  selectHint: 'Tap to select · Drag to move · Delete to remove',
+  selectedObject: 'Selected object. Drag to move or use arrow keys; Delete removes.',
+  objectSaveFailed: 'Could not save the change on this device. Keep this page open to retry.',
   shapes: 'Shapes',
   rectangle: 'Rectangle',
   ellipse: 'Ellipse',
@@ -91,6 +95,11 @@ function isTranslationKey(key: string): key is TranslationKey {
 const translations = {
   en: english,
   es: {
+    select: 'Seleccionar',
+    selectHint: 'Toca para seleccionar · Arrastra para mover · Supr para eliminar',
+    selectedObject:
+      'Objeto seleccionado. Arrastra o usa las flechas para mover; Supr para eliminar.',
+    objectSaveFailed: 'No se pudo guardar el cambio. Mantén esta página abierta para reintentar.',
     shapes: 'Formas',
     rectangle: 'Rectángulo',
     ellipse: 'Elipse',

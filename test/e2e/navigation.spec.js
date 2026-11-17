@@ -4,6 +4,7 @@ import { textObject } from '../helpers/text-fixture.js';
 const viewKey = 'vatio_board_viewport_v1';
 const dot = (x, y, inkRaw = '#0000ff', size = 10, tool = 'pen') => ({
   type: 'stroke',
+  ...(tool === 'pen' ? { id: `dot-${x}-${y}` } : {}),
   tool,
   size,
   inkRaw,

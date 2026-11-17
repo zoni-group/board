@@ -1,3 +1,5 @@
+export const IconSelect =
+  '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 3 14 10-7 1-3 7-4-18Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>';
 export const IconCalculator = `
   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <path d="M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.6"/>

@@ -343,7 +343,7 @@ test('keeps the picker, actions and navigation accessible at 320×160 without pa
     nav = await page.locator('.board-navigation').boundingBox();
   expect(picker.y + picker.height).toBeLessThan(nav.y);
   await page.locator('#shapePicker [data-shape="arrow"]').click();
-  await pointer(page, 'pointerdown', 1, 20, 10);
+  await pointer(page, 'pointerdown', 1, 5, 10);
   await pointer(page, 'pointermove', 1, 180, 25);
   await pointer(page, 'pointerup', 1, 180, 25);
   await expect.poll(async () => (await shapes(page)).length).toBe(1);
@@ -354,7 +354,7 @@ test('keeps the picker, actions and navigation accessible at 320×160 without pa
   await expect(page.locator('.shape-selection-actions')).toBeHidden();
   await page.locator('#shapePicker [data-shape="arrow"]').click();
   // Choosing a drawing kind dismisses selection; tap the arrow to select again.
-  await page.locator('#pad').click({ position: { x: 35, y: 11.4 } });
+  await page.locator('#pad').click({ position: { x: 8, y: 10.3 } });
   expect(
     await page
       .locator('.board-action-strip button, .board-navigation button')

@@ -1,4 +1,4 @@
-export const BOARD_SCHEMA_VERSION = 3;
+export const BOARD_SCHEMA_VERSION = 4;
 
 /** Board units: one CSS pixel at 100% zoom, independent of device pixel ratio. */
 export interface Point {
@@ -7,7 +7,9 @@ export interface Point {
 }
 
 export type StrokeTool = 'pen' | 'eraser';
-export type BoardTool = StrokeTool | 'text' | 'hand' | 'shapes';
+export type BoardTool = StrokeTool | 'text' | 'hand' | 'shapes' | 'select';
+
+export type BoardObjectRef = { kind: 'stroke' | 'text' | 'shape'; id: string };
 
 export type ShapeKind = 'rectangle' | 'ellipse' | 'line' | 'arrow';
 
@@ -61,14 +63,32 @@ export interface TextDeleteCommand {
   ids: string[];
 }
 
-export interface StrokeCommand {
+interface StrokeData {
   type: 'stroke';
-  tool: StrokeTool;
   size: number;
   inkRaw: string;
   points: Point[];
+}
+export interface PenStrokeCommand extends StrokeData {
+  tool: 'pen';
+  id: string;
+}
+export interface EraserStrokeCommand extends StrokeData {
+  tool: 'eraser';
   erasedTextIds?: string[];
   erasedShapeIds?: string[];
+}
+export type StrokeCommand = PenStrokeCommand | EraserStrokeCommand;
+export interface StrokeEditCommand {
+  type: 'stroke-edit';
+  id: string;
+  translate?: Point;
+  size?: number;
+  inkRaw?: string;
+}
+export interface StrokeDeleteCommand {
+  type: 'stroke-delete';
+  ids: string[];
 }
 
 export interface ClearCommand {
@@ -81,7 +101,9 @@ export type BoardCommand =
   | TextSetCommand
   | TextDeleteCommand
   | ShapeSetCommand
-  | ShapeDeleteCommand;
+  | ShapeDeleteCommand
+  | StrokeEditCommand
+  | StrokeDeleteCommand;
 
 export interface BoardSnapshot {
   commands: BoardCommand[];
@@ -193,9 +215,37 @@ export function isEmptyText(object: TextObject): boolean {
   return object.paragraphs.every((p) => p.runs.every((run) => run.text.trim() === ''));
 }
 
-export function normalizeCommand(command: unknown): BoardCommand | null {
+export function normalizeCommand(command: unknown, legacyStrokeId?: string): BoardCommand | null {
   if (!isRecord(command)) return null;
   if (command.type === 'clear') return { type: 'clear' };
+  if (command.type === 'stroke-delete') {
+    const ids = normalizeIds(command.ids);
+    return ids.length ? { type: 'stroke-delete', ids } : null;
+  }
+  if (command.type === 'stroke-edit') {
+    if (typeof command.id !== 'string' || !command.id) return null;
+    const translate =
+      command.translate === undefined ? undefined : normalizePoint(command.translate);
+    if (translate === null) return null;
+    if (
+      command.size !== undefined &&
+      (!isFiniteNumber(command.size) || command.size <= 0 || command.size > 1000)
+    )
+      return null;
+    if (
+      command.inkRaw !== undefined &&
+      (typeof command.inkRaw !== 'string' || !/^#[\da-f]{6}$/i.test(command.inkRaw))
+    )
+      return null;
+    if (!translate && command.size === undefined && command.inkRaw === undefined) return null;
+    return {
+      type: 'stroke-edit',
+      id: command.id,
+      ...(translate ? { translate } : {}),
+      ...(command.size !== undefined ? { size: command.size as number } : {}),
+      ...(command.inkRaw !== undefined ? { inkRaw: command.inkRaw as string } : {}),
+    };
+  }
   if (command.type === 'shape-set') {
     const object = normalizeShapeObject(command.object);
     return object ? { type: 'shape-set', object } : null;
@@ -219,12 +269,19 @@ export function normalizeCommand(command: unknown): BoardCommand | null {
     : [];
   if (points.length === 0) return null;
 
-  return {
+  const base = {
     type: 'stroke',
-    tool: command.tool === 'eraser' ? 'eraser' : 'pen',
     size: isFiniteNumber(command.size) && command.size > 0 ? command.size : 6,
     inkRaw: typeof command.inkRaw === 'string' ? command.inkRaw : '#111827',
     points,
+  } as const;
+  if (command.tool !== 'eraser') {
+    const id = typeof command.id === 'string' && command.id ? command.id : legacyStrokeId;
+    return id ? { ...base, tool: 'pen', id } : null;
+  }
+  return {
+    ...base,
+    tool: 'eraser',
     ...(command.tool === 'eraser' && normalizeIds(command.erasedTextIds).length
       ? { erasedTextIds: normalizeIds(command.erasedTextIds) }
       : {}),
@@ -234,9 +291,13 @@ export function normalizeCommand(command: unknown): BoardCommand | null {
   };
 }
 
-export function normalizeCommands(commands: unknown): BoardCommand[] {
+export function normalizeCommands(commands: unknown, legacyPrefix?: string): BoardCommand[] {
   if (!Array.isArray(commands)) return [];
-  return commands.map(normalizeCommand).filter((command) => command !== null);
+  return commands
+    .map((command, i) =>
+      normalizeCommand(command, legacyPrefix === undefined ? undefined : `${legacyPrefix}-${i}`)
+    )
+    .filter((command) => command !== null);
 }
 
 export function clonePoint(point: Point): Point {
@@ -255,20 +316,26 @@ export function cloneCommand(command: BoardCommand): BoardCommand {
       return { type: 'shape-set', object: cloneShapeObject(command.object) };
     case 'shape-delete':
       return { type: 'shape-delete', ids: [...command.ids] };
+    case 'stroke-edit':
+      return {
+        ...command,
+        ...(command.translate ? { translate: clonePoint(command.translate) } : {}),
+      };
+    case 'stroke-delete':
+      return { type: 'stroke-delete', ids: [...command.ids] };
     case 'text-set':
       return { type: 'text-set', object: cloneTextObject(command.object) };
     case 'text-delete':
       return { type: 'text-delete', ids: [...command.ids] };
     case 'stroke':
-      return {
-        type: 'stroke',
-        tool: command.tool,
-        size: command.size,
-        inkRaw: command.inkRaw,
-        points: command.points.map(clonePoint),
-        ...(command.erasedTextIds ? { erasedTextIds: [...command.erasedTextIds] } : {}),
-        ...(command.erasedShapeIds ? { erasedShapeIds: [...command.erasedShapeIds] } : {}),
-      };
+      return command.tool === 'pen'
+        ? { ...command, points: command.points.map(clonePoint) }
+        : {
+            ...command,
+            points: command.points.map(clonePoint),
+            ...(command.erasedTextIds ? { erasedTextIds: [...command.erasedTextIds] } : {}),
+            ...(command.erasedShapeIds ? { erasedShapeIds: [...command.erasedShapeIds] } : {}),
+          };
     default:
       return assertNever(command);
   }

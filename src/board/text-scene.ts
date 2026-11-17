@@ -20,6 +20,8 @@ export function resolveTextObjects(commands: readonly BoardCommand[]): TextObjec
         break;
       case 'shape-set':
       case 'shape-delete':
+      case 'stroke-edit':
+      case 'stroke-delete':
         break;
       default:
         assertNever(command);
