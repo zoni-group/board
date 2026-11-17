@@ -15,7 +15,7 @@ export interface BoardViewport {
   zoom: number;
 }
 
-export const MIN_ZOOM = 0.01;
+export const MIN_ZOOM = 0.5;
 export const MAX_ZOOM = 4;
 export const VIEWPORT_KEY = 'vatio_board_viewport_v1';
 
@@ -112,16 +112,10 @@ export function applyViewport(
 }
 export function loadViewport(): BoardViewport | null {
   const value = loadJson(VIEWPORT_KEY);
-  if (
-    !isRecord(value) ||
-    value.version !== 1 ||
-    !isFiniteNumber(value.zoom) ||
-    value.zoom < MIN_ZOOM ||
-    value.zoom > MAX_ZOOM
-  )
+  if (!isRecord(value) || value.version !== 1 || !isFiniteNumber(value.zoom) || value.zoom <= 0)
     return null;
   const center = normalizePoint(value.center);
-  return center ? { center, zoom: value.zoom } : null;
+  return center ? { center, zoom: clampZoom(value.zoom) } : null;
 }
 export function saveViewport(view: BoardViewport): boolean {
   return saveJson(VIEWPORT_KEY, { version: 1, center: view.center, zoom: view.zoom });

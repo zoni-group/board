@@ -70,7 +70,7 @@
 }
 
 *{ box-sizing:border-box; touch-action:none; }
-html, body{ height:100%; }
+html, body{ height:100%; overflow:hidden; overscroll-behavior:none; }
 
 body{
     margin:0;
@@ -89,12 +89,21 @@ body.board-is-drawing *{
 
 /* Full-page layout */
 .app{
-    min-height:100%;
+    position:fixed;
+    top:var(--board-visible-top, 0px);
+    left:var(--board-visible-left, 0px);
+    width:var(--board-visible-width, 100%);
+    height:100vh;
+    height:100dvh;
+    height:var(--board-visible-height, 100dvh);
+    min-height:0;
+    overflow:hidden;
     display:flex;
     flex-direction:column;
 }
 
 header{
+    flex:0 0 auto;
     position: sticky;
     top: 0;
     z-index: 10;
@@ -675,9 +684,11 @@ input[type="range"]{
 }
 
 main{
-    flex:1;
+    flex:1 1 0%;
     display:flex;
     min-height: 0; /* allow canvas to fill */
+    min-width: 0;
+    overflow: hidden;
 }
 
 .canvas-shell{
@@ -685,6 +696,7 @@ main{
     display:flex;
     padding: 0;
     min-height: 0;
+    min-width: 0;
 }
 
 .canvas-frame{
@@ -694,6 +706,7 @@ main{
     overflow:hidden;
     background: var(--canvas-bg);
     min-height: 0;
+    min-width: 0;
 
     /* Card depth */
     box-shadow: var(--shadow);
@@ -738,6 +751,7 @@ canvas{
     -webkit-touch-callout: none;
     -webkit-user-drag: none;
 }
+#pad { position:absolute; inset:0; }
 
 /* Compact tablet/small-laptop header:
    - Brand moves into the pages menu
@@ -988,7 +1002,10 @@ canvas{
 
 .color-popup{
   position: fixed;
-  inset: 0;
+  top:var(--board-visible-top, 0px);
+  left:var(--board-visible-left, 0px);
+  width:var(--board-visible-width, 100%);
+  height:var(--board-overlay-height, calc(100dvh - 80px));
   display: grid;
   place-items: center;
   background: rgba(0,0,0,.35);
@@ -1004,9 +1021,15 @@ canvas{
   background: var(--surface);
   box-shadow: var(--shadow);
   padding: 14px;
+  max-height:calc(100% - 16px);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
 }
+.color-popup-body { min-height:0; overflow:auto; overscroll-behavior:contain; touch-action:auto; }
 
 .color-popup-row{
+  flex:0 0 auto;
   display: grid;
   grid-template-columns: 26px 1fr 70px;
   align-items: center;
@@ -1061,7 +1084,7 @@ html.has-iro .color-popup-card{
   position: absolute;
   right: max(10px, env(safe-area-inset-right));
   bottom: max(10px, env(safe-area-inset-bottom));
-  z-index: 10;
+  z-index: 20;
   display: flex;
   align-items: center;
   padding: 3px;
@@ -1133,8 +1156,9 @@ html.has-iro .color-popup-card{
   box-shadow: var(--shadow);
 }
 .text-selection-actions {
-  position: absolute;
+  position: fixed;
   left: 0;
+  z-index:30;
   pointer-events: auto;
 }
 .text-selection-actions button,
@@ -1149,6 +1173,7 @@ html.has-iro .color-popup-card{
   touch-action: none;
 }
 .text-selection[hidden],
+.text-selection-actions[hidden],
 .board-text-editor[hidden] {
   display: none;
 }
@@ -1156,7 +1181,11 @@ html.has-iro .color-popup-card{
   position: fixed;
   z-index: 50;
   touch-action: auto;
+  display:flex;
+  flex-direction:column;
+  max-height:var(--board-panel-height, calc(100dvh - 80px));
 }
+.board-text-editor-body { min-height:0; overflow:auto; overscroll-behavior:contain; touch-action:auto; }
 .board-text-editor notectl-editor {
   display: block;
   width: 100%;
@@ -1166,12 +1195,12 @@ html.has-iro .color-popup-card{
   position: relative;
 }
 .board-text-editor notectl-editor::part(plugin-container-top) {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 8px);
-  width: min(340px, calc(100vw - 24px));
+  position: static;
+  width:100%;
 }
 .board-text-editor notectl-editor::part(content) {
+  width:var(--board-text-width, 100%);
+  max-width:100%;
   max-height: var(--board-text-max-height, calc(100dvh - 180px));
   border: 1px dashed var(--border);
   background: var(--canvas-bg);
@@ -1179,12 +1208,25 @@ html.has-iro .color-popup-card{
   overflow: auto;
 }
 .text-editor-actions {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
+  position:relative;
+  flex:0 0 auto;
+  align-self:flex-start;
+  margin-top:4px;
 }
 @media (max-width: 430px) {
   .board-action-strip {
     --board-action-hit-width: 44px;
   }
 }
+
+.short-board-layout() {
+  .header-inner { padding-top:0; padding-bottom:0; }
+  .header-inner > .brand, .board-canvas-meta .attribution { display:none; }
+  .board-canvas-meta { padding:4px 6px; }
+  .color-popup-card { padding:8px; }
+  .color-popup-row { margin-top:4px; }
+}
+@media (max-height:360px) { .short-board-layout(); }
+.board-short-viewport { .short-board-layout(); }
+@media (max-height:200px) { .board-canvas-meta { display:none; } }
+.board-tiny-viewport .board-canvas-meta { display:none; }

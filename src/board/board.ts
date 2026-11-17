@@ -4,6 +4,7 @@ import { loadBoardDrawing, saveBoardDrawing } from './storage.ts';
 import { cloneCommand, clonePoint } from './model.ts';
 import { createTextTool } from './text-tool.ts';
 import { createBoardNavigation } from './navigation.ts';
+import { observeScreenLayout } from './screen-layout.ts';
 import {
   applyStrokeStyle,
   createBoardScene,
@@ -120,6 +121,8 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   const zoomOutBtn = requireElement('zoomOut', 'button');
   const zoomResetBtn = requireElement('zoomReset', 'button');
   const fitBtn = requireElement('fitDrawing', 'button');
+  const app = document.querySelector<HTMLElement>('.app');
+  if (!app) throw new Error('Missing board app');
 
   // NEW: color UI
   const swatchesEl = requireElement('swatches', 'div');
@@ -292,7 +295,15 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       });
   }
   function fitDrawing() {
-    changeViewport(fitViewport(getScene().bounds, boardSize()));
+    const bounds = getScene().bounds;
+    const fitted = fitViewport(bounds, boardSize());
+    changeViewport(fitted);
+    if (
+      bounds &&
+      (bounds.width * fitted.zoom > Math.max(1, canvasCssWidth - 64) ||
+        bounds.height * fitted.zoom > Math.max(1, canvasCssHeight - 64))
+    )
+      setStatus(t('minimumZoomReached'));
   }
 
   // Theme-aware colors from CSS variables
@@ -574,6 +585,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     applyViewport(ctx, viewport, boardSize(), canvasDpr);
     renderStrokes(historyCtx, getScene().strokes, viewport, boardSize(), canvasDpr, renderedInk);
     copyHistorySurfaceToVisible();
+    if (currentStroke) drawStroke(ctx, currentStroke, renderedInk);
     textTool.paint();
   }
 
@@ -711,9 +723,15 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
 
   // Replay board coordinates at the current device pixel ratio.
   function resize() {
-    navigation.cancel();
     const rect = canvas.getBoundingClientRect();
     const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const changed =
+      rect.width !== canvasCssWidth || rect.height !== canvasCssHeight || dpr !== canvasDpr;
+    if (!changed) {
+      textTool.reflow();
+      return;
+    }
+    navigation.cancel();
     canvasCssWidth = rect.width;
     canvasCssHeight = rect.height;
     canvasDpr = dpr;
@@ -722,14 +740,17 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       queueViewportPersistence();
     }
 
-    canvas.width = Math.floor(rect.width * dpr);
-    canvas.height = Math.floor(rect.height * dpr);
-    textLayer.width = canvas.width;
-    textLayer.height = canvas.height;
-    prepareHistorySurface();
+    if (changed) {
+      canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      textLayer.width = canvas.width;
+      textLayer.height = canvas.height;
+      prepareHistorySurface();
+    }
 
     // Work in CSS pixels
     redrawCanvas();
+    textTool.reflow();
     syncViewportControls();
   }
 
@@ -1045,12 +1066,13 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       // recompute presets + apply ink contrast for new background
       renderSwatches();
       applyInk();
-      resize();
+      redrawCanvas();
+      textTool.reflow();
       setStatus(t('themeUpdated'));
     });
   }
 
-  window.addEventListener('resize', resize);
+  const screenLayout = observeScreenLayout(app, resize);
   window.addEventListener('pagehide', persistViewport);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) persistViewport();
@@ -1089,7 +1111,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   renderSwatches();
   applyInk();
 
-  resize();
+  screenLayout.update();
   setStatus(t('navigationHint'));
   void hydrateBoardDrawing().finally(() => {
     boardReady = true;

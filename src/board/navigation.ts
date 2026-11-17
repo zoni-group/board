@@ -268,7 +268,8 @@ export function createBoardNavigation(options: NavigationOptions) {
         (node) =>
           node === canvas ||
           (node instanceof Element &&
-            (node.id === 'textSelection' || node.closest('.board-navigation')))
+            (node.id === 'textSelection' ||
+              node.closest('.board-navigation, .text-selection-actions')))
       )
     )
       return false;
