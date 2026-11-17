@@ -472,7 +472,7 @@ test('retains recovery data when a board save fails, and allows retrying an unch
     Object.defineProperty(window, 'indexedDB', { value: undefined });
     const setItem = Storage.prototype.setItem;
     Storage.prototype.setItem = function (key, value) {
-      if (key === 'vatio_board_drawing_v2' && !window.allowBoardSave)
+      if (key === 'vatio_board_drawing_v3' && !window.allowBoardSave)
         throw new DOMException('Quota exceeded', 'QuotaExceededError');
       return setItem.call(this, key, value);
     };

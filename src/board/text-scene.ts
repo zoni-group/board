@@ -18,6 +18,9 @@ export function resolveTextObjects(commands: readonly BoardCommand[]): TextObjec
       case 'stroke':
         if (command.tool === 'eraser') command.erasedTextIds?.forEach((id) => objects.delete(id));
         break;
+      case 'shape-set':
+      case 'shape-delete':
+        break;
       default:
         assertNever(command);
     }

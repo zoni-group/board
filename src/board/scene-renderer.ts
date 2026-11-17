@@ -1,5 +1,6 @@
 import { assertNever } from './model.ts';
-import type { BoardCommand, StrokeCommand, TextObject } from './model.ts';
+import type { BoardCommand, StrokeCommand, TextObject, ShapeObject } from './model.ts';
+import { drawShape, resolveShapes, shapeBounds } from './shapes.ts';
 import { resolveTextObjects } from './text-scene.ts';
 import { cachedTextLayout, drawText } from './text-layout.ts';
 import {
@@ -14,6 +15,7 @@ import type { BoardBounds, BoardSize, BoardViewport } from './viewport.ts';
 export interface BoardScene {
   strokes: StrokeCommand[];
   text: TextObject[];
+  shapes: ShapeObject[];
   bounds: BoardBounds | null;
 }
 type InkColor = (raw: string) => string;
@@ -53,11 +55,13 @@ export function createBoardScene(
     else if (command.type === 'stroke' && command.points.length) strokes.push(command);
   }
   const text = resolveTextObjects(commands);
+  const shapes = resolveShapes(commands);
   let bounds: BoardBounds | null = null;
   for (const stroke of strokes)
     if (stroke.tool === 'pen') bounds = unionBounds(bounds, strokeBounds(stroke));
   for (const object of text) bounds = unionBounds(bounds, cachedTextLayout(ctx, object).bounds);
-  return { strokes, text, bounds };
+  for (const object of shapes) bounds = unionBounds(bounds, shapeBounds(object));
+  return { strokes, text, shapes, bounds };
 }
 
 export function applyStrokeStyle(
@@ -147,6 +151,7 @@ export function createDrawingCanvas(
   ctx.fillRect(0, 0, out.width, out.height);
   ctx.drawImage(inkCanvas, 0, 0);
   applyViewport(ctx, geometry.view, geometry);
+  for (const shape of scene.shapes) drawShape(ctx, shape, ink);
   for (const object of scene.text) drawText(ctx, object, cachedTextLayout(ctx, object));
   return { canvas: out, reduced: geometry.reduced };
 }

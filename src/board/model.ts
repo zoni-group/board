@@ -1,4 +1,4 @@
-export const BOARD_SCHEMA_VERSION = 2;
+export const BOARD_SCHEMA_VERSION = 3;
 
 /** Board units: one CSS pixel at 100% zoom, independent of device pixel ratio. */
 export interface Point {
@@ -7,7 +7,29 @@ export interface Point {
 }
 
 export type StrokeTool = 'pen' | 'eraser';
-export type BoardTool = StrokeTool | 'text' | 'hand';
+export type BoardTool = StrokeTool | 'text' | 'hand' | 'shapes';
+
+export type ShapeKind = 'rectangle' | 'ellipse' | 'line' | 'arrow';
+
+/** Boxes use opposite corners; lines retain endpoint order (and arrow direction). */
+export interface ShapeObject {
+  id: string;
+  kind: ShapeKind;
+  start: Point;
+  end: Point;
+  size: number;
+  inkRaw: string;
+}
+
+export interface ShapeSetCommand {
+  type: 'shape-set';
+  object: ShapeObject;
+}
+
+export interface ShapeDeleteCommand {
+  type: 'shape-delete';
+  ids: string[];
+}
 
 export interface TextRun {
   text: string;
@@ -46,13 +68,20 @@ export interface StrokeCommand {
   inkRaw: string;
   points: Point[];
   erasedTextIds?: string[];
+  erasedShapeIds?: string[];
 }
 
 export interface ClearCommand {
   type: 'clear';
 }
 
-export type BoardCommand = StrokeCommand | ClearCommand | TextSetCommand | TextDeleteCommand;
+export type BoardCommand =
+  | StrokeCommand
+  | ClearCommand
+  | TextSetCommand
+  | TextDeleteCommand
+  | ShapeSetCommand
+  | ShapeDeleteCommand;
 
 export interface BoardSnapshot {
   commands: BoardCommand[];
@@ -81,6 +110,36 @@ function normalizeIds(value: unknown): string[] {
   return Array.isArray(value)
     ? [...new Set(value.filter((id): id is string => typeof id === 'string' && id.length > 0))]
     : [];
+}
+
+export function normalizeShapeObject(value: unknown): ShapeObject | null {
+  if (!isRecord(value) || typeof value.id !== 'string' || !value.id) return null;
+  const { kind, size, inkRaw } = value;
+  if (kind !== 'rectangle' && kind !== 'ellipse' && kind !== 'line' && kind !== 'arrow')
+    return null;
+  const start = normalizePoint(value.start),
+    end = normalizePoint(value.end);
+  if (!start || !end || !isFiniteNumber(size) || size <= 0 || size > 1000) return null;
+  if (typeof inkRaw !== 'string' || !/^#[\da-f]{6}$/i.test(inkRaw)) return null;
+  const width = Math.abs(end.x - start.x),
+    height = Math.abs(end.y - start.y);
+  if (!Number.isFinite(Math.hypot(width, height))) return null;
+  if (kind === 'rectangle' || kind === 'ellipse') {
+    if (width === 0 || height === 0) return null;
+    return {
+      id: value.id,
+      kind,
+      size,
+      inkRaw,
+      start: { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y) },
+      end: { x: Math.max(start.x, end.x), y: Math.max(start.y, end.y) },
+    };
+  }
+  return width || height ? { id: value.id, kind, start, end, size, inkRaw } : null;
+}
+
+export function cloneShapeObject(object: ShapeObject): ShapeObject {
+  return { ...object, start: clonePoint(object.start), end: clonePoint(object.end) };
 }
 
 export function normalizeTextObject(value: unknown): TextObject | null {
@@ -137,6 +196,14 @@ export function isEmptyText(object: TextObject): boolean {
 export function normalizeCommand(command: unknown): BoardCommand | null {
   if (!isRecord(command)) return null;
   if (command.type === 'clear') return { type: 'clear' };
+  if (command.type === 'shape-set') {
+    const object = normalizeShapeObject(command.object);
+    return object ? { type: 'shape-set', object } : null;
+  }
+  if (command.type === 'shape-delete') {
+    const ids = normalizeIds(command.ids);
+    return ids.length ? { type: 'shape-delete', ids } : null;
+  }
   if (command.type === 'text-set') {
     const object = normalizeTextObject(command.object);
     return object && !isEmptyText(object) ? { type: 'text-set', object } : null;
@@ -161,6 +228,9 @@ export function normalizeCommand(command: unknown): BoardCommand | null {
     ...(command.tool === 'eraser' && normalizeIds(command.erasedTextIds).length
       ? { erasedTextIds: normalizeIds(command.erasedTextIds) }
       : {}),
+    ...(command.tool === 'eraser' && normalizeIds(command.erasedShapeIds).length
+      ? { erasedShapeIds: normalizeIds(command.erasedShapeIds) }
+      : {}),
   };
 }
 
@@ -181,6 +251,10 @@ export function cloneCommand(command: BoardCommand): BoardCommand {
   switch (command.type) {
     case 'clear':
       return { type: 'clear' };
+    case 'shape-set':
+      return { type: 'shape-set', object: cloneShapeObject(command.object) };
+    case 'shape-delete':
+      return { type: 'shape-delete', ids: [...command.ids] };
     case 'text-set':
       return { type: 'text-set', object: cloneTextObject(command.object) };
     case 'text-delete':
@@ -193,6 +267,7 @@ export function cloneCommand(command: BoardCommand): BoardCommand {
         inkRaw: command.inkRaw,
         points: command.points.map(clonePoint),
         ...(command.erasedTextIds ? { erasedTextIds: [...command.erasedTextIds] } : {}),
+        ...(command.erasedShapeIds ? { erasedShapeIds: [...command.erasedShapeIds] } : {}),
       };
     default:
       return assertNever(command);

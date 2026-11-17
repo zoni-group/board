@@ -188,7 +188,7 @@ describe('board storage', () => {
         const boardStorage = await import('../../src/board/storage.ts');
         localStorage.setItem(boardStorage.BOARD_DRAWING_KEY, raw);
         const restored = await boardStorage.loadBoardDrawing();
-        expect(restored).toMatchObject({ version: 2, commands: [], redoCommands: [] });
+        expect(restored).toMatchObject({ version: 3, commands: [], redoCommands: [] });
         expect(Number.isFinite(restored.updatedAtMs)).toBe(true);
       } finally {
         vi.unstubAllGlobals();
@@ -236,12 +236,12 @@ describe('board storage', () => {
       const restored = await boardStorage.loadBoardDrawing();
       expect(restored.commands).toEqual(legacy.commands);
       expect(restored.redoCommands).toEqual(legacy.redoCommands);
-      expect(restored.version).toBe(2);
+      expect(restored.version).toBe(3);
       expect(JSON.parse(localStorage.getItem(boardStorage.LEGACY_BOARD_DRAWING_KEY))).toEqual(
         legacy
       );
       expect(fakeIndexedDb.__records.get(boardStorage.BOARD_DRAWING_KEY)).toMatchObject({
-        version: 2,
+        version: 3,
         commandCount: 106,
         chunkCount: 2,
         redoCount: 1,
@@ -261,12 +261,112 @@ describe('board storage', () => {
       fakeIndexedDb.__records.set(boardStorage.BOARD_DRAWING_KEY, 42);
       const legacy = { version: 1, updatedAtMs: 1, commands: [createStroke(1)], redoCommands: [] };
       localStorage.setItem(boardStorage.BOARD_DRAWING_KEY, JSON.stringify(legacy));
-      expect(await boardStorage.loadBoardDrawing()).toEqual({ ...legacy, version: 2 });
+      expect(await boardStorage.loadBoardDrawing()).toEqual({ ...legacy, version: 3 });
     } finally {
       vi.unstubAllGlobals();
       vi.resetModules();
     }
   });
+
+  it.each(['local', 'indexed'])(
+    'migrates v2 text, highlighted runs and redo from %s storage without changing originals',
+    async (source) => {
+      const database = createFakeIndexedDb();
+      vi.stubGlobal('indexedDB', database);
+      vi.resetModules();
+      try {
+        const storage = await import('../../src/board/storage.ts');
+        const object = textObject();
+        object.paragraphs[0].runs[0].highlightRaw = '#fff176';
+        const commands = [createStroke(1), { type: 'text-set', object }],
+          redoCommands = [{ type: 'text-delete', ids: [object.id] }];
+        const legacy = { version: 2, commands, redoCommands };
+        if (source === 'local')
+          localStorage.setItem(storage.PREVIOUS_BOARD_DRAWING_KEY, JSON.stringify(legacy));
+        else {
+          database.__records.set(storage.PREVIOUS_BOARD_DRAWING_KEY, {
+            version: 2,
+            generation: 'old-v2',
+            commandCount: 2,
+            chunkCount: 1,
+            redoCount: 1,
+            redoChunkCount: 1,
+          });
+          database.__records.set('boardChunk:v2:old-v2:history:0', commands);
+          database.__records.set('boardChunk:v2:old-v2:redo:0', redoCommands);
+        }
+        const original = cloneJson([...database.__records]);
+        expect(await storage.loadBoardDrawing()).toMatchObject({
+          version: 3,
+          commands,
+          redoCommands,
+        });
+        for (const [key, value] of original) expect(database.__records.get(key)).toEqual(value);
+        if (source === 'local')
+          expect(JSON.parse(localStorage.getItem(storage.PREVIOUS_BOARD_DRAWING_KEY))).toEqual(
+            legacy
+          );
+        expect(database.__records.get(storage.BOARD_DRAWING_KEY).version).toBe(3);
+      } finally {
+        vi.unstubAllGlobals();
+        vi.resetModules();
+      }
+    }
+  );
+
+  it('retains a v2 drawing in memory when migration cannot be saved', async () => {
+    const database = createFakeIndexedDb({ shouldFailPut: () => true });
+    vi.stubGlobal('indexedDB', database);
+    vi.resetModules();
+    try {
+      const storage = await import('../../src/board/storage.ts');
+      const legacy = {
+        version: 2,
+        commands: [{ type: 'text-set', object: textObject() }],
+        redoCommands: [createStroke(2)],
+      };
+      database.__records.set(storage.PREVIOUS_BOARD_DRAWING_KEY, legacy);
+      expect(await storage.loadBoardDrawing()).toMatchObject({ ...legacy, version: 3 });
+      expect(database.__records.get(storage.PREVIOUS_BOARD_DRAWING_KEY)).toEqual(legacy);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  });
+
+  it.each([true, false])(
+    'round-trips editable shapes and erasure with IndexedDB support = %s',
+    async (indexed) => {
+      vi.stubGlobal('indexedDB', indexed ? createFakeIndexedDb() : undefined);
+      vi.resetModules();
+      try {
+        const storage = await import('../../src/board/storage.ts');
+        const object = {
+          id: 'shape-1',
+          kind: 'arrow',
+          start: { x: -100, y: 200 },
+          end: { x: 10, y: -20 },
+          size: 2,
+          inkRaw: '#2563eb',
+        };
+        const snapshot = {
+          commands: [
+            { type: 'shape-set', object },
+            { ...createStroke(0), erasedShapeIds: [object.id] },
+          ],
+          redoCommands: [
+            { type: 'shape-set', object },
+            { type: 'shape-delete', ids: [object.id] },
+          ],
+        };
+        expect(await storage.saveBoardDrawing(snapshot)).toBe(true);
+        expect(await storage.loadBoardDrawing()).toMatchObject(snapshot);
+      } finally {
+        vi.unstubAllGlobals();
+        vi.resetModules();
+      }
+    }
+  );
 
   it('migrates chunked version 1 records without deleting the legacy generation', async () => {
     const database = createFakeIndexedDb();
@@ -289,7 +389,7 @@ describe('board storage', () => {
       database.__records.set('boardChunk:old:redo:0', [createStroke(2)]);
       const restored = await storage.loadBoardDrawing();
       expect(restored).toMatchObject({
-        version: 2,
+        version: 3,
         commands: [createStroke(1)],
         redoCommands: [createStroke(2)],
       });
@@ -330,7 +430,7 @@ describe('board storage', () => {
 
   it('reports a transaction abort even after the write request succeeds', async () => {
     const database = createFakeIndexedDb({
-      shouldAbortAfterPut: (key) => key === 'vatio_board_drawing_v2',
+      shouldAbortAfterPut: (key) => key === 'vatio_board_drawing_v3',
     });
     vi.stubGlobal('indexedDB', database);
     vi.resetModules();
@@ -362,7 +462,7 @@ describe('board storage', () => {
         throw new Error('Quota exceeded');
       });
       expect(await storage.loadBoardDrawing()).toMatchObject({
-        version: 2,
+        version: 3,
         commands: [createStroke(1)],
         redoCommands: [createStroke(2)],
       });
@@ -571,7 +671,7 @@ describe('board storage', () => {
 
         const metadata = fakeIndexedDb.__records.get(boardStorage.BOARD_DRAWING_KEY);
         expect(metadata.previousGeneration).toBeTruthy();
-        const chunkKey = `boardChunk:v2:${metadata.generation}:history:1`;
+        const chunkKey = `${boardStorage.BOARD_CHUNK_KEY_PREFIX}${metadata.generation}:history:1`;
         if (corruption === 'missing') {
           fakeIndexedDb.__records.delete(chunkKey);
         } else {

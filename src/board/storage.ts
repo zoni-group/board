@@ -5,7 +5,8 @@ import { BOARD_SCHEMA_VERSION, isFiniteNumber, isRecord, normalizeCommands } fro
 import type { BoardCommand, BoardDrawing, BoardSnapshot } from './model.ts';
 
 export { BOARD_SCHEMA_VERSION } from './model.ts';
-export const BOARD_DRAWING_KEY = 'vatio_board_drawing_v2';
+export const BOARD_DRAWING_KEY = 'vatio_board_drawing_v3';
+export const PREVIOUS_BOARD_DRAWING_KEY = 'vatio_board_drawing_v2';
 export const LEGACY_BOARD_DRAWING_KEY = 'vatio_board_drawing_v1';
 export const BOARD_PERSIST_CHUNK_SIZE = 100;
 
@@ -14,7 +15,7 @@ const BOARD_DB_VERSION = 1;
 const BOARD_DB_STORE = 'boardRecords';
 const BOARD_HISTORY_SECTION = 'history';
 const BOARD_REDO_SECTION = 'redo';
-export const BOARD_CHUNK_KEY_PREFIX = 'boardChunk:v2:';
+export const BOARD_CHUNK_KEY_PREFIX = 'boardChunk:v3:';
 
 const boardStore = createIndexedJsonKeyValueStore({
   dbName: BOARD_DB_NAME,
@@ -337,21 +338,27 @@ async function migrateLegacyBoardStorage(): Promise<void> {
     boardMigrationPromise = (async () => {
       const database = await openBoardDatabase();
       if (database && (await boardStore.getValue(BOARD_DRAWING_KEY)) !== undefined) return;
-      const localV2 = loadJson(BOARD_DRAWING_KEY);
-      if (isRecord(localV2)) {
-        if (database) await persistBoardDocument(toBoardDrawing(localV2));
+      const localCurrent = loadJson(BOARD_DRAWING_KEY);
+      if (isRecord(localCurrent)) {
+        if (database) await persistBoardDocument(toBoardDrawing(localCurrent));
         return;
       }
-      const indexedV1 = database ? await boardStore.getValue(LEGACY_BOARD_DRAWING_KEY) : undefined;
-      const indexedDrawing = isRecord(indexedV1)
-        ? await hydrateStoredBoardDrawing(indexedV1, 'boardChunk:')
-        : null;
-      const legacy = indexedDrawing ?? loadJson(LEGACY_BOARD_DRAWING_KEY);
-      if (isRecord(legacy)) {
-        legacyMigrationDrawing = toBoardDrawing(legacy);
-        await persistBoardDocument(legacyMigrationDrawing);
+      for (const [key, prefix] of [
+        [PREVIOUS_BOARD_DRAWING_KEY, 'boardChunk:v2:'],
+        [LEGACY_BOARD_DRAWING_KEY, 'boardChunk:'],
+      ]) {
+        const indexed = database ? await boardStore.getValue(key) : undefined;
+        const indexedDrawing = isRecord(indexed)
+          ? await hydrateStoredBoardDrawing(indexed, prefix)
+          : null;
+        const legacy = indexedDrawing ?? loadJson(key);
+        if (isRecord(legacy)) {
+          legacyMigrationDrawing = toBoardDrawing(legacy);
+          await persistBoardDocument(legacyMigrationDrawing);
+          break;
+        }
       }
-      // Version 1 metadata and chunks remain intact for old tabs and rollback.
+      // Older metadata and chunks remain intact for old tabs and rollback.
     })();
   }
   return boardMigrationPromise;

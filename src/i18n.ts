@@ -8,6 +8,14 @@ import { loadText, saveText } from './shared/storage.ts';
 export type Language = 'en' | 'es';
 
 const english = {
+  shapes: 'Shapes',
+  rectangle: 'Rectangle',
+  ellipse: 'Ellipse',
+  line: 'Line',
+  arrow: 'Arrow',
+  shapeHint: 'Drag to draw · Shift for equal sides or 45° · Tap a shape to select',
+  selectedShape: 'Selected shape · Drag to move · Handles resize',
+  shapeSaveFailed: 'Could not save shapes on this device. Keep this page open to retry.',
   text: 'Text',
   moveText: 'Move',
   editText: 'Edit',
@@ -83,6 +91,16 @@ function isTranslationKey(key: string): key is TranslationKey {
 const translations = {
   en: english,
   es: {
+    shapes: 'Formas',
+    rectangle: 'Rectángulo',
+    ellipse: 'Elipse',
+    line: 'Línea',
+    arrow: 'Flecha',
+    shapeHint: 'Arrastra para dibujar · Mayús para lados iguales o 45° · Toca para seleccionar',
+    selectedShape:
+      'Forma seleccionada · Arrastra para mover · Usa los controles para redimensionar',
+    shapeSaveFailed:
+      'No se pudieron guardar las formas. Mantén esta página abierta para reintentar.',
     text: 'Texto',
     moveText: 'Mover',
     editText: 'Editar',

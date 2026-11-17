@@ -101,8 +101,8 @@ Vite bundles the application, while `npm run typecheck` checks types. Production
 including CI and deployment, run the type check before bundling.
 
 `src/board/model.ts` defines the shared drawing commands, snapshots, validation, and cloning.
-Storage reads are treated as unknown until normalized. Version 1 drawings migrate to isolated
-version 2 metadata and chunks; the original version 1 records remain intact.
+Storage reads are treated as unknown until normalized. Version 1 and 2 drawings migrate to isolated
+version 3 metadata and chunks; the original records remain intact for older tabs and rollback.
 
 New command types must be handled explicitly in cloning and rendering. Keep drawing points
 in board coordinates (CSS pixels at 100% zoom): zoom transforms input and rendering rather
@@ -131,6 +131,37 @@ freehand drawing and is included in PNG exports; controls and selection outlines
 Only one editor is mounted at a time. The editor runtime loads when Text is first selected;
 committed text uses a separate transparent canvas and a board-owned JSON format. No server,
 external fonts, or collaboration service is required.
+
+## Shapes Tool
+
+Select **Shapes**, then choose **Rectangle**, **Ellipse**, **Line**, or **Arrow**. Drag to draw
+with a live preview. Hold Shift for a square/circle or line angles in 45-degree
+increments. The current color and width controls apply to new shapes. Interiors stay transparent.
+
+While Shapes is active, tap a shape to select it, drag its body to move it, and drag a corner
+handle to resize a rectangle/ellipse. Lines and arrows have two endpoint handles; their direction
+is preserved. Hold Shift while resizing for the same constraints. Change color or width to restyle
+the selection. **Delete** removes it; **Done**, Escape, or changing tools dismisses the selection.
+Choosing a shape kind also dismisses selection, so the next drag can draw inside or across
+existing shapes. A tap selects an existing shape; a drag moves it once it is selected.
+On the focused board, arrow keys move the selection by one board unit (Shift: ten);
+Alt+arrows resize by moving its end corner/endpoint. Delete/Backspace removes it.
+
+Each drawing, move, resize, or style gesture is one undoable edit. Clicks without a drag do not
+create tiny shapes. Escape, pointer cancellation, capture loss, or a second touch cancels an
+unfinished shape or transform. Two-finger pan/zoom and stylus palm rejection use the same routing
+as freehand drawing. Handles and controls keep their screen size while shapes zoom with the board.
+
+The eraser removes a whole shape when it touches the outline; crossing an empty interior alone
+does not remove it. A single eraser gesture can remove several shapes and text blocks along with
+ink, and undo restores them together. Shapes remain editable after local autosave and reload.
+They render above freehand ink and below text, in shape creation order; editing retains that order.
+Fit and whole-board PNG export include shapes and arrowheads, including offscreen content.
+Selection outlines, handles, and previews are excluded from exports.
+
+Shapes use the existing Canvas renderer and strict TypeScript command model, with no new runtime
+dependencies. Their viewport-sized transparent layer avoids allocating a canvas as large as the
+workspace. Grouping, rotation, fills, and connected diagram editing are outside this tool's scope.
 
 ## Moving and Zooming
 
@@ -165,7 +196,7 @@ active text edit, except while composing text with an input method.
 **Save PNG** includes the whole drawing, including offscreen content, with a 32-unit margin,
 independently of the current zoom. It renders at one pixel per board unit and reduces resolution
 uniformly above 4096 pixels per side or 8 megapixels; the status message reports this reduction.
-The image keeps the board background, erasing, text, and highlighting. Conservative stroke bounds
+The image keeps the board background, erasing, shapes, text, and highlighting. Conservative stroke bounds
 can leave whitespace after pixel erasing. An empty drawing exports a viewport-sized blank image.
 
 ## Persistence Model
