@@ -1,3 +1,4 @@
+import { boardAction } from '../helpers/board-menu.js';
 import { chooseObject } from '../helpers/object-picker.js';
 import { test, expect } from '@playwright/test';
 import { textObject } from '../helpers/text-fixture.js';
@@ -30,11 +31,12 @@ const eraser = (x, y, size = 36) => ({
   points: [{ x, y }],
 });
 async function snapshot(page) {
-  return page.evaluate(async () => (await import('/src/board/storage.ts')).loadBoardDrawing());
+  return page.evaluate(async () => (await import('/test/helpers/board-browser.js')).activeBoard());
 }
 async function scene(page) {
   return page.evaluate(async () => {
-    const commands = (await (await import('/src/board/storage.ts')).loadBoardDrawing()).commands;
+    const commands = (await (await import('/test/helpers/board-browser.js')).activeBoard())
+      .commands;
     const { createBoardScene } = await import('/src/board/scene-renderer.ts');
     return createBoardScene(commands, document.getElementById('textLayer').getContext('2d'));
   });
@@ -43,18 +45,15 @@ async function seed(page, commands, view = null) {
   await page.evaluate(
     async ({ commands, view }) => {
       window.dispatchEvent(new Event('pagehide'));
-      await (
-        await import('/src/board/storage.ts')
-      ).saveBoardDrawing({ commands, redoCommands: [] });
-      if (view)
-        localStorage.setItem('vatio_board_viewport_v1', JSON.stringify({ version: 1, ...view }));
-      else localStorage.removeItem('vatio_board_viewport_v1');
+      const { seedBoard } = await import('/test/helpers/board-browser.js');
+      await seedBoard({ commands, viewport: view });
     },
     { commands, view }
   );
   await page.reload();
-  await expect(page.locator('#select')).toBeEnabled();
+  await expect(page.locator('#text')).toBeEnabled();
 }
+
 async function pointer(page, type, id, x, y, extra = {}) {
   const rect = await page.locator('#pad').boundingBox();
   await page.locator('#pad').dispatchEvent(type, {
@@ -89,7 +88,7 @@ async function pixel(page, x, y) {
 }
 async function png(page) {
   const pending = page.waitForEvent('download');
-  await page.locator('#save').click();
+  await boardAction(page, 'save');
   const chunks = [];
   for await (const chunk of await (await pending).createReadStream()) chunks.push(chunk);
   return Buffer.concat(chunks).toString('base64');
@@ -304,7 +303,7 @@ test('cancels moves on second touch, capture loss, Escape and blur for every obj
     expect(await snapshot(page)).toEqual(original);
     await pointer(page, 'pointerdown', 5, 100, y);
     await pointer(page, 'pointermove', 5, 130, y + 20);
-    await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+    await page.evaluate(async () => window.dispatchEvent(new Event('blur')));
     await pointer(page, 'pointerup', 5, 130, y + 20);
     expect(await snapshot(page)).toEqual(original);
   }
@@ -357,36 +356,13 @@ test('moves and erases ink in negative world coordinates at zoom, with whole-boa
   await page.locator('#fitDrawing').click();
   await expect
     .poll(() =>
-      page.evaluate(() => JSON.parse(localStorage.getItem('vatio_board_viewport_v1')).center)
+      page.evaluate(
+        async () =>
+          (await (await import('/test/helpers/board-browser.js')).activeBoard()).viewport.center
+      )
     )
     .toEqual({ x: 20, y: -90 });
   expect(await png(page)).toBe(first);
-});
-
-test('migrates ID-less v3 ink, retains the original drawing, and persists object edits', async ({
-  page,
-}) => {
-  const old = pen();
-  delete old.id;
-  const legacy = { version: 3, commands: [old, eraser(150, 120)], redoCommands: [] };
-  await page.evaluate(
-    (legacy) => localStorage.setItem('vatio_board_drawing_v3', JSON.stringify(legacy)),
-    legacy
-  );
-  await page.reload();
-  await expect(page.locator('#select')).toBeEnabled();
-  const id = (await scene(page)).strokes[0].id;
-  expect(id).toBeTruthy();
-  await page.locator('#select').click();
-  await drag(page, { x: 100, y: 120 }, { x: 130, y: 140 });
-  await expect.poll(async () => (await scene(page)).strokes[0].offset).toEqual({ x: 30, y: 20 });
-  await page.reload();
-  await expect(page.locator('#select')).toBeEnabled();
-  expect((await scene(page)).strokes[0].id).toBe(id);
-  expect((await scene(page)).strokes[0].offset).toEqual({ x: 30, y: 20 });
-  expect(
-    await page.evaluate(() => JSON.parse(localStorage.getItem('vatio_board_drawing_v3')))
-  ).toEqual(legacy);
 });
 
 test('a second touch cancels movement begun with the existing Text Move handle', async ({
@@ -451,10 +427,10 @@ test('reports failed object saves, preserves the previous snapshot and retries t
   page,
 }) => {
   await seed(page, [pen()]);
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const put = IDBObjectStore.prototype.put;
     IDBObjectStore.prototype.put = function (value, key) {
-      if (key === 'vatio_board_drawing_v5' && !window.allowObjectSave)
+      if (this.name === 'boards' && !window.allowObjectSave)
         throw new DOMException('Quota exceeded', 'QuotaExceededError');
       return put.call(this, value, key);
     };
@@ -464,7 +440,7 @@ test('reports failed object saves, preserves the previous snapshot and retries t
   await expect(page.locator('#status')).toContainText('Could not save the change');
   expect((await snapshot(page)).commands).toEqual([pen()]);
   expect(await pixel(page, 130, 140)).toEqual([37, 99, 235, 255]);
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     window.allowObjectSave = true;
   });
   await page.locator('#pad').press('ArrowRight');

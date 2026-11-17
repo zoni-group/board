@@ -1,15 +1,16 @@
+import { boardAction } from '../helpers/board-menu.js';
 import { test, expect } from '@playwright/test';
 import { chooseObject } from '../helpers/object-picker.js';
 
 async function objects(page) {
   return page.evaluate(async () => {
-    const { loadBoardDrawing } = await import('/src/board/storage.ts');
+    const { activeBoard } = await import('/test/helpers/board-browser.js');
     const { resolveContent } = await import('/src/board/content.ts');
-    return resolveContent((await loadBoardDrawing()).commands);
+    return resolveContent((await activeBoard()).commands);
   });
 }
 async function imageFile(page) {
-  const base64 = await page.evaluate(() => {
+  const base64 = await page.evaluate(async () => {
     const c = document.createElement('canvas');
     c.width = 160;
     c.height = 100;
@@ -59,7 +60,7 @@ async function doneTable(page) {
 }
 async function pngHasRed(page) {
   const downloadPromise = page.waitForEvent('download');
-  await page.locator('#save').click();
+  await boardAction(page, 'save');
   const stream = await (await downloadPromise).createReadStream();
   const chunks = [];
   for await (const chunk of stream) chunks.push(chunk);
@@ -88,7 +89,7 @@ test.beforeEach(async ({ page }) => {
 test('uses one existing toolbar slot for all four object choices and keeps Shapes separate', async ({
   page,
 }) => {
-  await expect(page.locator('.board-action-strip > button')).toHaveCount(8);
+  await expect(page.locator('.board-action-strip > button')).toHaveCount(7);
   await page.locator('#text').click();
   await expect(page.locator('#objectPicker button')).toHaveCount(4);
   await expect(page.locator('#objectPicker')).toContainText('Text');
@@ -129,7 +130,7 @@ test('saves image pixels locally, restores them, and exports them without a conn
 
 test('preserves image transparency over other board content', async ({ page }) => {
   await uploadImage(page);
-  const data = await page.evaluate(() => {
+  const data = await page.evaluate(async () => {
     const c = document.createElement('canvas');
     c.width = 160;
     c.height = 100;
@@ -208,7 +209,7 @@ test('moves, resizes and deletes images through shared selection, with undo and 
   await expect.poll(() => objects(page)).toEqual([]);
   await page.locator('#undo').click();
   await expect.poll(async () => (await objects(page)).length).toBe(1);
-  await page.locator('#clear').click();
+  await boardAction(page, 'clear');
   await expect.poll(() => objects(page)).toEqual([]);
   await page.locator('#undo').click();
   await expect.poll(async () => (await objects(page)).length).toBe(1);
@@ -275,7 +276,7 @@ test('erases annotations while preserving the image during and after the gesture
 test('handles storage failure and invalid media without inserting broken objects', async ({
   page,
 }) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const original = IDBObjectStore.prototype.put;
     IDBObjectStore.prototype.put = function (...args) {
       if (this.name === 'assets') throw new DOMException('Full', 'QuotaExceededError');
@@ -317,10 +318,10 @@ test('drops images in world coordinates, pastes into the board, and leaves edito
   await expect.poll(async () => (await objects(page)).length).toBe(1);
   const actual = (await objects(page))[0];
   const expected = await page.evaluate(async (point) => {
-    const { screenToWorld, loadViewport } = await import('/src/board/viewport.ts');
+    const { screenToWorld } = await import('/src/board/viewport.ts');
     return screenToWorld(
       point,
-      loadViewport(),
+      (await (await import('/test/helpers/board-browser.js')).activeBoard()).viewport,
       document.querySelector('#pad').getBoundingClientRect()
     );
   }, dropped);
@@ -435,12 +436,16 @@ test('edits formatted table cells, changes row/column sizes, and saves one board
   await page.locator('#pad').click({ position: { x: 30, y: 30 } });
   // Reopen using actual hit testing at a cell center.
   const point = await page.evaluate(async () => {
-    const { loadViewport, worldToScreen } = await import('/src/board/viewport.ts');
-    const { loadBoardDrawing } = await import('/src/board/storage.ts');
+    const { worldToScreen } = await import('/src/board/viewport.ts');
+    const { activeBoard } = await import('/test/helpers/board-browser.js');
     const { resolveContent } = await import('/src/board/content.ts');
-    const o = resolveContent((await loadBoardDrawing()).commands)[0];
+    const o = resolveContent((await activeBoard()).commands)[0];
     const r = document.querySelector('#pad').getBoundingClientRect();
-    return worldToScreen({ x: o.position.x + 20, y: o.position.y + 20 }, loadViewport(), r);
+    return worldToScreen(
+      { x: o.position.x + 20, y: o.position.y + 20 },
+      (await (await import('/test/helpers/board-browser.js')).activeBoard()).viewport,
+      r
+    );
   });
   await page.locator('#pad').click({ position: point });
   await page
@@ -529,7 +534,7 @@ test('plays supported local video offline and reports runtimes without video cod
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: 'Choose video file', exact: true }).click();
   await (await chooser).setFiles('test/fixtures/sample.mp4');
-  const supported = await page.evaluate(() =>
+  const supported = await page.evaluate(async () =>
     Boolean(document.createElement('video').canPlayType('video/mp4'))
   );
   if (!supported) {
@@ -567,7 +572,7 @@ test('keeps navigation visible and page scrolling disabled in short viewports', 
   await page.setViewportSize({ width: 320, height: 200 });
   const root = await openTable(page);
   await expect(root).toBeAttached();
-  const geometry = await page.evaluate(() => {
+  const geometry = await page.evaluate(async () => {
     const panel = document.querySelector('.board-content-panel').getBoundingClientRect(),
       nav = document.querySelector('.board-navigation').getBoundingClientRect();
     return {

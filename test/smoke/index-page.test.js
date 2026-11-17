@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BOARD_DRAWING_KEY } from '../../src/board/storage.ts';
+import { IDBFactory } from 'fake-indexeddb';
+import { setTimeout as delay } from 'node:timers/promises';
 import { bootHtmlPage, expectPageSeo, flushTasks } from '../helpers/page-smoke.js';
 
 vi.mock('@jaames/iro', () => ({
@@ -19,7 +20,11 @@ vi.mock('@jaames/iro', () => ({
 async function flushBoardTasks(iterations = 8) {
   for (let index = 0; index < iterations; index += 1) {
     await flushTasks();
+    await delay(1);
   }
+  for (let attempt = 0; document.getElementById('text')?.disabled && attempt < 200; attempt++)
+    await delay(2);
+  expect(document.getElementById('text')?.disabled).toBe(false);
 }
 
 function dispatchBoardStroke(canvas, pointerId, clientX, clientY) {
@@ -31,8 +36,14 @@ function dispatchBoardStroke(canvas, pointerId, clientX, clientY) {
   canvas.dispatchEvent(pointerUp);
 }
 
+async function readCurrentBoard() {
+  const storage = await import('../../src/board/storage.ts');
+  return storage.loadBoardDrawing((await storage.getBoardLibrary()).activeBoardId);
+}
 describe('index.html smoke', () => {
   beforeEach(async () => {
+    await (await import('../../src/board/storage.ts')).closeLibraryDatabase();
+    vi.stubGlobal('indexedDB', new IDBFactory());
     vi.resetModules();
     await bootHtmlPage('index.html');
   });
@@ -55,10 +66,10 @@ describe('index.html smoke', () => {
     expect(document.querySelector('#undo .btn-icon svg')).toBeTruthy();
     expect(document.getElementById('redo').getAttribute('aria-label')).toBe('Redo');
     expect(document.querySelector('#redo .btn-icon svg')).toBeTruthy();
-    expect(document.getElementById('clear').getAttribute('aria-label')).toBe('Clear');
-    expect(document.querySelector('#clear .btn-icon svg')).toBeTruthy();
-    expect(document.getElementById('save').getAttribute('aria-label')).toBe('Save PNG');
-    expect(document.querySelector('#save .btn-icon svg')).toBeTruthy();
+    expect(document.getElementById('clear').textContent).toBe('Clear drawing');
+    expect(document.querySelector('#boards .btn-icon svg')).toBeTruthy();
+    expect(document.getElementById('save').textContent).toBe('Save PNG');
+    expect(document.getElementById('boardMenu').hidden).toBe(true);
     expect(document.getElementById('undo').disabled).toBe(true);
     expect(document.getElementById('redo').disabled).toBe(true);
     expect(document.getElementById('sizePreview')).toBeTruthy();
@@ -110,8 +121,8 @@ describe('index.html smoke', () => {
     canvas.dispatchEvent(pointerUp);
     await flushBoardTasks();
 
-    const storedDrawing = JSON.parse(localStorage.getItem(BOARD_DRAWING_KEY));
-    expect(storedDrawing.commandCount).toBe(1);
+    const storedDrawing = await readCurrentBoard();
+    expect(storedDrawing.commands).toHaveLength(1);
     expect(document.getElementById('undo').disabled).toBe(false);
     expect(document.getElementById('redo').disabled).toBe(true);
 
@@ -152,7 +163,7 @@ describe('index.html smoke', () => {
     expect(localStorage.getItem('vatio_board_ink_raw')).toBe('#2563eb');
     dispatchBoardStroke(document.getElementById('pad'), 1, 24, 24);
     await flushBoardTasks();
-    expect(JSON.parse(localStorage.getItem(BOARD_DRAWING_KEY)).commands[0].inkRaw).toBe('#2563eb');
+    expect((await readCurrentBoard()).commands[0].inkRaw).toBe('#2563eb');
     expect(window.fetch).not.toHaveBeenCalled();
   });
 
@@ -209,7 +220,7 @@ describe('index.html smoke', () => {
 
     expect(document.body.classList.contains('board-is-drawing')).toBe(false);
     expect(document.getElementById('undo').disabled).toBe(true);
-    expect(localStorage.getItem(BOARD_DRAWING_KEY)).toBeNull();
+    expect((await readCurrentBoard()).commands).toEqual([]);
   });
 
   it('cancels an active stroke before redoing history', async () => {
@@ -256,7 +267,7 @@ describe('index.html smoke', () => {
     Object.defineProperty(up, 'pointerId', { value: 80 });
     canvas.dispatchEvent(up);
     await flushBoardTasks();
-    expect(JSON.parse(localStorage.getItem(BOARD_DRAWING_KEY)).commands).toHaveLength(1);
+    expect((await readCurrentBoard()).commands).toHaveLength(1);
   });
 
   it('restores large saved drafts after reload without dropping older strokes', async () => {
@@ -276,8 +287,8 @@ describe('index.html smoke', () => {
 
     expect(ctx.drawImage).toHaveBeenCalledTimes(125);
 
-    const storedBeforeReload = JSON.parse(localStorage.getItem(BOARD_DRAWING_KEY));
-    expect(storedBeforeReload.commandCount).toBe(125);
+    const storedBeforeReload = await readCurrentBoard();
+
     expect(storedBeforeReload.commands).toHaveLength(125);
 
     vi.resetModules();
@@ -290,9 +301,9 @@ describe('index.html smoke', () => {
     document.getElementById('undo').click();
     await flushBoardTasks();
 
-    const storedAfterUndo = JSON.parse(localStorage.getItem(BOARD_DRAWING_KEY));
-    expect(storedAfterUndo.commandCount).toBe(124);
-    expect(storedAfterUndo.redoCount).toBe(1);
+    const storedAfterUndo = await readCurrentBoard();
+    expect(storedAfterUndo.commands).toHaveLength(124);
+    expect(storedAfterUndo.redoCommands).toHaveLength(1);
   });
 
   it('replays pen, eraser, and clear commands through undo and redo', async () => {
@@ -304,12 +315,7 @@ describe('index.html smoke', () => {
     dispatchBoardStroke(canvas, 2, 24, 24);
     document.getElementById('clear').click();
     await flushBoardTasks();
-    expect(
-      JSON.parse(localStorage.getItem(BOARD_DRAWING_KEY)).commands.map(({ type, tool }) => [
-        type,
-        tool,
-      ])
-    ).toEqual([
+    expect((await readCurrentBoard()).commands.map(({ type, tool }) => [type, tool])).toEqual([
       ['stroke', 'pen'],
       ['stroke', 'eraser'],
       ['clear', undefined],
@@ -317,12 +323,12 @@ describe('index.html smoke', () => {
 
     document.getElementById('undo').click();
     await flushBoardTasks();
-    let saved = JSON.parse(localStorage.getItem(BOARD_DRAWING_KEY));
+    let saved = await readCurrentBoard();
     expect(saved.commands).toHaveLength(2);
     expect(saved.redoCommands).toEqual([{ type: 'clear' }]);
     document.getElementById('redo').click();
     await flushBoardTasks();
-    saved = JSON.parse(localStorage.getItem(BOARD_DRAWING_KEY));
+    saved = await readCurrentBoard();
     expect(saved.commands.at(-1)).toEqual({ type: 'clear' });
     expect(saved.redoCommands).toEqual([]);
   });
@@ -339,7 +345,7 @@ describe('index.html smoke', () => {
     });
     dispatchBoardStroke(canvas, 1, 24, 48);
     await flushBoardTasks();
-    const beforeResize = JSON.parse(localStorage.getItem(BOARD_DRAWING_KEY));
+    const beforeResize = await readCurrentBoard();
     expect(beforeResize.commands[0].points).toEqual([{ x: 14, y: 28 }]);
 
     vi.stubGlobal('devicePixelRatio', 2);
@@ -349,13 +355,11 @@ describe('index.html smoke', () => {
       expect(canvas.height).toBe(600);
       // Keep the same world center when the viewport size changes.
       expect(canvas.getContext('2d').setTransform).toHaveBeenCalledWith(2, 0, 0, 2, 80, -20);
-      expect(JSON.parse(localStorage.getItem(BOARD_DRAWING_KEY))).toEqual(beforeResize);
+      expect(await readCurrentBoard()).toEqual(beforeResize);
       document.getElementById('undo').click();
       document.getElementById('redo').click();
       await flushBoardTasks();
-      expect(JSON.parse(localStorage.getItem(BOARD_DRAWING_KEY)).commands).toEqual(
-        beforeResize.commands
-      );
+      expect((await readCurrentBoard()).commands).toEqual(beforeResize.commands);
     } finally {
       vi.unstubAllGlobals();
     }

@@ -1,12 +1,10 @@
 import { chooseObject } from '../helpers/object-picker.js';
 import { test, expect } from '@playwright/test';
 
-const viewportKey = 'vatio_board_viewport_v1';
-
 async function expectScreenLayout(page) {
   await expect
     .poll(() =>
-      page.evaluate(() => {
+      page.evaluate(async () => {
         const screen = window.visualViewport;
         const top = screen?.offsetTop ?? 0,
           left = screen?.offsetLeft ?? 0;
@@ -64,7 +62,7 @@ for (const [width, height] of [
   }) => {
     await page.setViewportSize({ width, height });
     await expectScreenLayout(page);
-    await page.evaluate(() => window.scrollTo(0, 1000));
+    await page.evaluate(async () => window.scrollTo(0, 1000));
     await expectScreenLayout(page);
     await page.locator('#pad').focus();
     await page.keyboard.press('PageDown');
@@ -72,20 +70,20 @@ for (const [width, height] of [
   });
 }
 
-test('clamps old saved views and every interactive zoom path to 50%', async ({ page }) => {
+test('clamps saved views and every interactive zoom path to 50%', async ({ page }) => {
   const center = { x: -1200, y: 700 };
-  await page.evaluate(
-    ({ center, viewportKey }) => {
-      window.dispatchEvent(new Event('pagehide'));
-      localStorage.setItem(viewportKey, JSON.stringify({ version: 1, center, zoom: 0.01 }));
-    },
-    { center, viewportKey }
-  );
+  await page.evaluate(async (center) => {
+    await (
+      await import('/test/helpers/board-browser.js')
+    ).seedBoard({ viewport: { center, zoom: 0.01 } });
+  }, center);
   await page.reload();
   await expect(page.locator('#text')).toBeEnabled();
   await expect(page.locator('#zoomReset')).toHaveText('50%');
   expect(
-    await page.evaluate(async () => (await import('/src/board/viewport.ts')).loadViewport())
+    await page.evaluate(
+      async () => (await (await import('/test/helpers/board-browser.js')).activeBoard()).viewport
+    )
   ).toEqual({ center, zoom: 0.5 });
   await expect(page.getByRole('button', { name: 'Zoom out', exact: true })).toBeDisabled();
   await page
@@ -112,8 +110,8 @@ test('clamps old saved views and every interactive zoom path to 50%', async ({ p
   await expect(page.locator('#zoomReset')).toHaveText('50%');
   await page.evaluate(async () => {
     await (
-      await import('/src/board/storage.ts')
-    ).saveBoardDrawing({
+      await import('/test/helpers/board-browser.js')
+    ).seedBoard({
       commands: [
         {
           type: 'stroke',
@@ -257,14 +255,14 @@ test('follows visual viewport changes without scrolling or rewriting drawing coo
     .poll(() =>
       page.evaluate(
         async () =>
-          (await (await import('/src/board/storage.ts')).loadBoardDrawing()).commands.length
+          (await (await import('/test/helpers/board-browser.js')).activeBoard()).commands.length
       )
     )
     .toBe(1);
   const before = await page.evaluate(
-    async () => (await (await import('/src/board/storage.ts')).loadBoardDrawing()).commands
+    async () => (await (await import('/test/helpers/board-browser.js')).activeBoard()).commands
   );
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     Object.assign(visualViewport, { height: 240, offsetTop: 20 });
     visualViewport.dispatchEvent(new Event('resize'));
   });
@@ -279,17 +277,17 @@ test('follows visual viewport changes without scrolling or rewriting drawing coo
   await page.locator('#colorPopupClose').click();
   expect(
     await page.evaluate(
-      async () => (await (await import('/src/board/storage.ts')).loadBoardDrawing()).commands
+      async () => (await (await import('/test/helpers/board-browser.js')).activeBoard()).commands
     )
   ).toEqual(before);
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     Object.assign(visualViewport, { height: 640, offsetTop: 0 });
     visualViewport.dispatchEvent(new Event('resize'));
   });
   await expectScreenLayout(page);
   expect(
     await page.evaluate(
-      async () => (await (await import('/src/board/storage.ts')).loadBoardDrawing()).commands
+      async () => (await (await import('/test/helpers/board-browser.js')).activeBoard()).commands
     )
   ).toEqual(before);
 });

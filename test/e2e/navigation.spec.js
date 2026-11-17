@@ -1,8 +1,8 @@
+import { boardAction } from '../helpers/board-menu.js';
 import { chooseObject } from '../helpers/object-picker.js';
 import { test, expect } from '@playwright/test';
 import { textObject } from '../helpers/text-fixture.js';
 
-const viewKey = 'vatio_board_viewport_v1';
 const dot = (x, y, inkRaw = '#0000ff', size = 10, tool = 'pen') => ({
   type: 'stroke',
   ...(tool === 'pen' ? { id: `dot-${x}-${y}` } : {}),
@@ -13,37 +13,35 @@ const dot = (x, y, inkRaw = '#0000ff', size = 10, tool = 'pen') => ({
 });
 
 async function snapshot(page) {
-  return page.evaluate(async () => (await import('/src/board/storage.ts')).loadBoardDrawing());
+  return page.evaluate(async () => (await import('/test/helpers/board-browser.js')).activeBoard());
 }
 async function objects(page) {
   return page.evaluate(async () => {
-    const { loadBoardDrawing } = await import('/src/board/storage.ts');
+    const { activeBoard } = await import('/test/helpers/board-browser.js');
     const { resolveTextObjects } = await import('/src/board/text-scene.ts');
-    return resolveTextObjects((await loadBoardDrawing()).commands);
+    return resolveTextObjects((await activeBoard()).commands);
   });
 }
 async function seed(page, commands, view = null) {
   await page.evaluate(
-    async ({ commands, view, viewKey }) => {
+    async ({ commands, view }) => {
       window.dispatchEvent(new Event('pagehide'));
-      await (
-        await import('/src/board/storage.ts')
-      ).saveBoardDrawing({ commands, redoCommands: [] });
-      if (view) localStorage.setItem(viewKey, JSON.stringify({ version: 1, ...view }));
-      else localStorage.removeItem(viewKey);
+      const { seedBoard } = await import('/test/helpers/board-browser.js');
+      await seedBoard({ commands, viewport: view });
     },
-    { commands, view, viewKey }
+    { commands, view }
   );
   await page.reload();
   await expect(page.locator('#text')).toBeEnabled();
 }
+
 async function camera(page) {
-  return page.evaluate((key) => {
-    const saved = JSON.parse(localStorage.getItem(key));
-    if (saved) return { center: saved.center, zoom: saved.zoom };
+  return page.evaluate(async () => {
+    const saved = (await (await import('/test/helpers/board-browser.js')).activeBoard()).viewport;
+    if (saved) return saved;
     const rect = document.getElementById('pad').getBoundingClientRect();
     return { center: { x: rect.width / 2, y: rect.height / 2 }, zoom: 1 };
-  }, viewKey);
+  });
 }
 async function localPoint(page, world) {
   const view = await camera(page);
@@ -70,7 +68,7 @@ async function pointer(page, type, id, x, y, pointerType = 'touch') {
 }
 async function png(page) {
   const pending = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Save PNG', exact: true }).click();
+  await boardAction(page, 'save');
   const chunks = [];
   for await (const chunk of await (await pending).createReadStream()) chunks.push(chunk);
   return page.evaluate(async (data) => {
@@ -142,7 +140,8 @@ test('pans and zooms the workspace while controls and drawing history stay fixed
   await expect
     .poll(async () => (await camera(page)).center)
     .toEqual({ x: original.center.x - 32, y: original.center.y - 24 });
-  expect(await snapshot(page)).toEqual(saved);
+  expect((await snapshot(page)).commands).toEqual(saved.commands);
+  expect((await snapshot(page)).redoCommands).toEqual(saved.redoCommands);
   expect(await page.getByRole('button', { name: 'Pen', exact: true }).boundingBox()).toEqual(
     penBounds
   );
@@ -283,7 +282,7 @@ test('caps large exports and reports the reduced resolution', async ({ page }) =
   await expect(page.locator('#status')).toContainText('resolution reduced');
 });
 
-test('restores the last view, preserves it on resize and clear, and rejects corrupt preferences', async ({
+test('restores the last view, preserves it on resize and clear, and keeps drawings intact', async ({
   page,
 }) => {
   const view = { center: { x: -1500, y: 700 }, zoom: 0.5 };
@@ -295,22 +294,11 @@ test('restores the last view, preserves it on resize and clear, and rejects corr
   await page.setViewportSize({ width: 700, height: 500 });
   await expect(page.locator('#zoomReset')).toHaveText('50%');
   expect(await camera(page)).toEqual(view);
-  await page.getByRole('button', { name: 'Clear', exact: true }).click();
+  await boardAction(page, 'clear');
   await expect.poll(async () => (await snapshot(page)).commands.at(-1).type).toBe('clear');
   expect(await camera(page)).toEqual(view);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect.poll(async () => (await snapshot(page)).commands.length).toBe(1);
-  await page.evaluate(
-    (key) =>
-      localStorage.setItem(
-        key,
-        JSON.stringify({ version: 1, center: { x: 'bad', y: 0 }, zoom: 0 })
-      ),
-    viewKey
-  );
-  await page.reload();
-  await expect(page.locator('#zoomReset')).toHaveText('100%');
-  expect((await snapshot(page)).commands).toEqual([dot(-1500, 700)]);
 });
 
 test('preserves the initial view across resize and reopen and anchors native wheel zoom', async ({
@@ -344,7 +332,7 @@ test('preserves the initial view across resize and reopen and anchors native whe
   const zoomed = await camera(page);
   expect(zoomed.center.x + (anchor.x - rect.width / 2) / zoomed.zoom).toBeCloseTo(world.x);
   expect(zoomed.center.y + (anchor.y - rect.height / 2) / zoomed.zoom).toBeCloseTo(world.y);
-  expect(await page.evaluate(() => window.visualViewport.scale)).toBe(1);
+  expect(await page.evaluate(async () => window.visualViewport.scale)).toBe(1);
   if (isMobile) await page.locator('#pad').dispatchEvent('wheel', { deltaY: 40 });
   else await page.mouse.wheel(0, 40);
   await expect
@@ -401,22 +389,21 @@ test('recovers an offscreen draft into view without changing its board coordinat
   await expect
     .poll(() =>
       page.evaluate(
-        () =>
-          JSON.parse(localStorage.getItem('vatio_board_text_draft_v1'))?.object.paragraphs[0]
-            .runs[0].text
+        async () =>
+          (await (await import('/test/helpers/board-browser.js')).activeBoard()).draft?.object
+            .paragraphs[0].runs[0].text
       )
     )
     .toBe('Recovered');
   const position = await page.evaluate(
-    () => JSON.parse(localStorage.getItem('vatio_board_text_draft_v1')).object.position
+    async () =>
+      (await (await import('/test/helpers/board-browser.js')).activeBoard()).draft.object.position
   );
-  await page.evaluate((key) => {
-    window.dispatchEvent(new Event('pagehide'));
-    localStorage.setItem(
-      key,
-      JSON.stringify({ version: 1, center: { x: 9000, y: 9000 }, zoom: 1 })
-    );
-  }, viewKey);
+  await page.evaluate(async () => {
+    const { activeBoard, seedBoard } = await import('/test/helpers/board-browser.js');
+    const record = await activeBoard();
+    await seedBoard({ ...record, viewport: { center: { x: 9000, y: 9000 }, zoom: 1 } });
+  });
   await page.reload();
   input = page.locator('notectl-editor').getByRole('textbox');
   await expect(input).toBeVisible();

@@ -1,3 +1,4 @@
+import { boardAction } from '../helpers/board-menu.js';
 import { test, expect } from '@playwright/test';
 
 const shape = (overrides = {}) => ({
@@ -10,31 +11,28 @@ const shape = (overrides = {}) => ({
   ...overrides,
 });
 async function snapshot(page) {
-  return page.evaluate(async () => (await import('/src/board/storage.ts')).loadBoardDrawing());
+  return page.evaluate(async () => (await import('/test/helpers/board-browser.js')).activeBoard());
 }
 async function shapes(page) {
   return page.evaluate(async () => {
-    const { loadBoardDrawing } = await import('/src/board/storage.ts');
+    const { activeBoard } = await import('/test/helpers/board-browser.js');
     const { resolveShapes } = await import('/src/board/shapes.ts');
-    return resolveShapes((await loadBoardDrawing()).commands);
+    return resolveShapes((await activeBoard()).commands);
   });
 }
 async function seed(page, commands, view = null) {
   await page.evaluate(
     async ({ commands, view }) => {
       window.dispatchEvent(new Event('pagehide'));
-      await (
-        await import('/src/board/storage.ts')
-      ).saveBoardDrawing({ commands, redoCommands: [] });
-      if (view)
-        localStorage.setItem('vatio_board_viewport_v1', JSON.stringify({ version: 1, ...view }));
-      else localStorage.removeItem('vatio_board_viewport_v1');
+      const { seedBoard } = await import('/test/helpers/board-browser.js');
+      await seedBoard({ commands, viewport: view });
     },
     { commands, view }
   );
   await page.reload();
-  await expect(page.locator('#shapes')).toBeEnabled();
+  await expect(page.locator('#text')).toBeEnabled();
 }
+
 async function choose(page, kind) {
   await page.getByRole('button', { name: 'Shapes', exact: true }).click();
   await page.locator(`#shapePicker [data-shape="${kind}"]`).click();
@@ -104,6 +102,7 @@ for (const kind of ['rectangle', 'ellipse', 'line', 'arrow']) {
     });
     await expect(page.locator('.shape-selection-actions')).toBeVisible();
     await page.reload();
+    await expect(page.locator('#shapes')).toBeEnabled();
     await expect.poll(async () => (await shapes(page)).length).toBe(1);
     expect((await shapes(page))[0].kind).toBe(kind);
     await expect(page.locator('#shapeLayer')).toBeVisible();
@@ -189,9 +188,9 @@ test('keeps controls bounded when selecting a stored shape wider than the curren
       .evaluate((button) => button.style.getPropertyValue('--board-size-preview'))
   ).toBe('22px');
   expect(await shapes(page)).toEqual([object]);
-  expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(
-    true
-  );
+  expect(
+    await page.evaluate(async () => document.documentElement.scrollHeight <= innerHeight)
+  ).toBe(true);
 });
 
 test('selects, moves, resizes, styles, deletes and restores a shape with undo/redo', async ({
@@ -228,7 +227,7 @@ test('selects, moves, resizes, styles, deletes and restores a shape with undo/re
   await page.locator('#redo').click();
   await expect.poll(async () => (await shapes(page)).length).toBe(0);
   await page.locator('#undo').click();
-  await page.locator('#clear').click();
+  await boardAction(page, 'clear');
   await expect.poll(async () => (await shapes(page)).length).toBe(0);
   await page.locator('#undo').click();
   await expect.poll(async () => (await shapes(page)).length).toBe(1);
@@ -287,6 +286,7 @@ test('erases whole shapes only on their outlines and undoes a swept gesture in o
   await page.locator('#undo').click();
   await expect.poll(() => shapes(page)).toEqual([a, b]);
   await page.reload();
+  await expect(page.locator('#shapes')).toBeEnabled();
   await expect.poll(() => shapes(page)).toEqual([a, b]);
 });
 
@@ -374,7 +374,9 @@ test('keeps the picker, actions and navigation accessible at 320×160 without pa
       )
   ).toBe(true);
   expect(
-    await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight && scrollY === 0)
+    await page.evaluate(
+      async () => document.documentElement.scrollHeight <= innerHeight && scrollY === 0
+    )
   ).toBe(true);
   await page.locator('.shape-selection-actions').getByRole('button', { name: 'Delete' }).click();
   await expect.poll(async () => (await shapes(page)).length).toBe(0);
@@ -398,7 +400,7 @@ test('includes offscreen shapes in Fit and PNG independently of the current view
   ]);
   async function png() {
     const pending = page.waitForEvent('download');
-    await page.locator('#save').click();
+    await boardAction(page, 'save');
     const chunks = [];
     for await (const chunk of await (await pending).createReadStream()) chunks.push(chunk);
     return Buffer.concat(chunks).toString('base64');
@@ -433,7 +435,10 @@ test('includes offscreen shapes in Fit and PNG independently of the current view
   await page.locator('#fitDrawing').click();
   await expect
     .poll(() =>
-      page.evaluate(() => JSON.parse(localStorage.getItem('vatio_board_viewport_v1'))?.center.x)
+      page.evaluate(
+        async () =>
+          (await (await import('/test/helpers/board-browser.js')).activeBoard()).viewport?.center.x
+      )
     )
     .toBe(350);
 });
