@@ -62,6 +62,7 @@ const english = {
   preparingPng: 'Preparing PNG...',
   savePngFailed: 'Could not prepare the PNG',
   downloadedPng: 'Downloaded PNG',
+  minimumZoomReached: 'Minimum zoom reached. Pan to see the rest of the drawing.',
 
   // File
   drawingFilename: 'drawing.png',
@@ -136,6 +137,7 @@ const translations = {
     preparingPng: 'Preparando PNG...',
     savePngFailed: 'No se pudo preparar el PNG',
     downloadedPng: 'PNG descargado',
+    minimumZoomReached: 'Zoom mínimo alcanzado. Desplázate para ver el resto del dibujo.',
 
     // File
     drawingFilename: 'dibujo.png',

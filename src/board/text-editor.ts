@@ -27,6 +27,7 @@ import { AlignmentPlugin } from '@notectl/core/plugins/alignment';
 import type { Language } from '../i18n.ts';
 import type { TextObject, TextRun } from './model.ts';
 import { DEFAULT_TEXT_SIZE, TEXT_FONT } from './text-layout.ts';
+import { constrainPopup } from './screen-layout.ts';
 
 const DEFAULT_RUN: Omit<TextRun, 'text'> = {
   fontSize: DEFAULT_TEXT_SIZE,
@@ -139,6 +140,15 @@ class BoardAppearance implements Plugin {
   private context: PluginContext | null = null;
   private sheet: CSSStyleSheet | null = null;
   private root: ShadowRoot | null = null;
+  private popupObserver: MutationObserver | null = null;
+  private popupFrame: number | null = null;
+  private readonly positionPopups = () => {
+    if (this.popupFrame !== null) return;
+    this.popupFrame = window.requestAnimationFrame(() => {
+      this.popupFrame = null;
+      this.root?.querySelectorAll<HTMLElement>('.notectl-popup').forEach(constrainPopup);
+    });
+  };
   init(context: PluginContext): void {
     this.context = context;
     context.registerStyleSheet(`
@@ -157,6 +167,10 @@ class BoardAppearance implements Plugin {
     this.root = root;
     this.sheet = new CSSStyleSheet();
     root.adoptedStyleSheets = [...root.adoptedStyleSheets, this.sheet];
+    this.popupObserver = new MutationObserver(this.positionPopups);
+    this.popupObserver.observe(root, { childList: true, subtree: true });
+    root.addEventListener('scroll', this.positionPopups, true);
+    document.addEventListener('board:layout', this.positionPopups);
     if (this.context) this.updateLineSizes(this.context.getState());
   }
   onStateChange(_old: EditorState, state: EditorState): void {
@@ -188,6 +202,10 @@ class BoardAppearance implements Plugin {
     );
   }
   destroy(): void {
+    this.popupObserver?.disconnect();
+    this.root?.removeEventListener('scroll', this.positionPopups, true);
+    document.removeEventListener('board:layout', this.positionPopups);
+    if (this.popupFrame !== null) window.cancelAnimationFrame(this.popupFrame);
     if (this.root && this.sheet)
       this.root.adoptedStyleSheets = this.root.adoptedStyleSheets.filter(
         (sheet) => sheet !== this.sheet

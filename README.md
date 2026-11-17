@@ -138,9 +138,9 @@ The workspace has no visible edges. Pan to reveal more space; drawing content mo
 while the tools stay at their normal screen size. The navigation strip stays in the lower-right corner:
 
 - **Hand**: drag with a mouse or one finger to move the view. Choose a drawing tool to resume drawing.
-- **− / +**: zoom out or in around the center. Zoom ranges from 1% to 400%.
+- **− / +**: zoom out or in around the center. Zoom ranges from 50% to 400%, keeping the smallest brush at least one screen pixel wide.
 - **Percentage**: reset to 100% while keeping the current center.
-- **Fit drawing**: center the whole drawing with padding, up to 100% zoom. On an empty board it restores the initial view.
+- **Fit drawing**: center the drawing with padding, between 50% and 100% zoom. If the entire drawing cannot fit at 50%, pan to see the rest. On an empty board it restores the initial view.
 
 With a drawing tool selected, one finger draws or taps to place text. Two fingers move the view
 and pinch to zoom. Adding a second finger cancels the unfinished touch stroke or eraser gesture;
@@ -154,6 +154,10 @@ Hand selected (Shift moves farther). These shortcuts do not interrupt typing.
 
 The last position and zoom save locally, separately from drawing history. Navigation does not
 change undo/redo. Resizing preserves the view center; Clear preserves the current view.
+Older saved views below 50% reopen at 50% while keeping their center.
+The app fits the visible screen without page scrolling, including short landscape views and
+the space remaining above a mobile keyboard. Navigation stays visible at its normal size;
+long text and color/formatting popovers can scroll internally, with their actions kept reachable.
 Text blocks move freely beyond the screen edges. Their editor stays at a readable screen size;
 finishing an edit places the text back at the board's zoom level. Starting navigation finishes an
 active text edit, except while composing text with an input method.

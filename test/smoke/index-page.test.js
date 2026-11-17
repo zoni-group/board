@@ -241,6 +241,24 @@ describe('index.html smoke', () => {
     expect(document.getElementById('redo').disabled).toBe(false);
   });
 
+  it('keeps an active stroke when a resize event does not change the drawing surface', async () => {
+    await import('../../src/board/board.ts');
+    await flushBoardTasks();
+    const canvas = document.getElementById('pad');
+    const down = new MouseEvent('pointerdown', { bubbles: true, clientX: 24, clientY: 24 });
+    Object.defineProperty(down, 'pointerId', { value: 80 });
+    canvas.dispatchEvent(down);
+    const clearCount = canvas.getContext('2d').clearRect.mock.calls.length;
+    window.dispatchEvent(new Event('resize'));
+    expect(canvas.getContext('2d').clearRect).toHaveBeenCalledTimes(clearCount);
+    expect(document.body.classList.contains('board-is-drawing')).toBe(true);
+    const up = new MouseEvent('pointerup', { bubbles: true, clientX: 24, clientY: 24 });
+    Object.defineProperty(up, 'pointerId', { value: 80 });
+    canvas.dispatchEvent(up);
+    await flushBoardTasks();
+    expect(JSON.parse(localStorage.getItem(BOARD_DRAWING_KEY)).commands).toHaveLength(1);
+  });
+
   it('restores large saved drafts after reload without dropping older strokes', async () => {
     await import('../../src/board/board.ts');
     await flushBoardTasks();

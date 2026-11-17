@@ -16,6 +16,7 @@ import {
   worldToScreen,
 } from './viewport.ts';
 import type { BoardViewport } from './viewport.ts';
+import { panelArea } from './screen-layout.ts';
 import { clearTextDraft, loadTextDraft, recoverTextDraft, saveTextDraft } from './text-draft.ts';
 import type { TextDraft } from './text-draft.ts';
 import type { TextEditorSession } from './text-editor.ts';
@@ -59,13 +60,16 @@ export function createTextTool(options: TextToolOptions) {
   move.type = edit.type = remove.type = 'button';
   const tools = document.createElement('div');
   tools.className = 'text-selection-actions';
+  tools.hidden = true;
   tools.append(move, edit, remove);
-  selection.append(tools);
+  document.body.append(tools);
   frame.append(selection);
   const host = document.createElement('div');
   host.className = 'board-text-editor';
   host.hidden = true;
   document.body.append(host);
+  const editorBody = document.createElement('div');
+  editorBody.className = 'board-text-editor-body';
   const done = document.createElement('button'),
     cancel = document.createElement('button');
   done.type = cancel.type = 'button';
@@ -131,6 +135,7 @@ export function createTextTool(options: TextToolOptions) {
     if (object) {
       const layout = cachedTextLayout(context, object);
       selection.hidden ||= !boundsIntersect(layout.bounds, visible);
+      tools.hidden = selection.hidden;
       const bounds = {
         ...worldToScreen(layout.bounds, boardView, size()),
         width: layout.bounds.width * boardView.zoom,
@@ -147,7 +152,7 @@ export function createTextTool(options: TextToolOptions) {
       const controls = tools.getBoundingClientRect();
       const viewport = window.visualViewport;
       const left = Math.max(view.left, clip.left, viewport?.offsetLeft ?? 0) + 4;
-      const top =
+      let top =
         Math.max(
           view.top,
           clip.top,
@@ -164,13 +169,16 @@ export function createTextTool(options: TextToolOptions) {
         Math.min(
           view.bottom,
           clip.bottom,
-          (frame.querySelector('.board-navigation')?.getBoundingClientRect().top ?? Infinity) - 8,
+          (document.querySelector('.board-navigation')?.getBoundingClientRect().top ?? Infinity) -
+            8,
           (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight)
         ) - 4;
+      if (bottom - top < controls.height) top = (viewport?.offsetTop ?? 0) + 4;
       const desiredY = view.top + (bounds.y < 42 ? bounds.y + bounds.height + 4 : bounds.y - 38);
-      tools.style.top = `${Math.max(top, Math.min(desiredY, bottom - controls.height)) - view.top - bounds.y}px`;
-      tools.style.left = `${Math.max(left, Math.min(view.left + bounds.x, right - controls.width)) - view.left - bounds.x}px`;
+      tools.style.top = `${Math.max(top, Math.min(desiredY, bottom - controls.height))}px`;
+      tools.style.left = `${Math.max(left, Math.min(view.left + bounds.x, right - controls.width))}px`;
     }
+    tools.hidden = selection.hidden;
   }
   function flushDraft() {
     window.clearTimeout(timer);
@@ -184,23 +192,25 @@ export function createTextTool(options: TextToolOptions) {
     const object = session.read();
     const { bounds } = layoutText(context, object);
     const rect = canvas.getBoundingClientRect();
-    const viewport = window.visualViewport;
-    const width = viewport?.width ?? window.innerWidth,
-      height = viewport?.height ?? window.innerHeight;
-    const offsetX = viewport?.offsetLeft ?? 0,
-      offsetY = viewport?.offsetTop ?? 0;
-    host.style.width = `${Math.max(24, Math.min(bounds.width + 2, width - 32))}px`;
+    const area = panelArea();
+    const contentWidth = Math.min(bounds.width + 2, area.width);
+    const width = Math.max(Math.min(340, area.width), contentWidth);
+    host.style.width = `${width}px`;
+    host.style.maxHeight = `${area.height}px`;
+    session.element.style.setProperty('--board-text-width', `${Math.max(24, contentWidth)}px`);
     const toolbar = session.element.shadowRoot?.querySelector<HTMLElement>(
       '[part~="plugin-container-top"]'
     );
     const toolbarHeight = toolbar?.getBoundingClientRect().height ?? 48;
-    const anchor = worldToScreen(object.position, options.getViewport(), rect);
-    host.style.left = `${Math.max(offsetX + 12, Math.min(rect.left + anchor.x, offsetX + width - Math.min(340, width - 24) - 12))}px`;
-    host.style.top = `${Math.max(offsetY + toolbarHeight + 12, Math.min(rect.top + anchor.y, offsetY + height - Math.min(bounds.height, height - toolbarHeight - 80) - 60))}px`;
+    const actionsHeight = actions.getBoundingClientRect().height || 40;
     session.element.style.setProperty(
       '--board-text-max-height',
-      `${Math.max(40, height - toolbarHeight - 90)}px`
+      `${Math.max(38.4, area.height - toolbarHeight - actionsHeight - 12)}px`
     );
+    const anchor = worldToScreen(object.position, options.getViewport(), rect);
+    const height = Math.min(area.height, host.getBoundingClientRect().height);
+    host.style.left = `${Math.max(area.left, Math.min(rect.left + anchor.x, area.right - width))}px`;
+    host.style.top = `${Math.max(area.top, Math.min(rect.top + anchor.y - toolbarHeight, area.bottom - height))}px`;
   }
   function changed() {
     if (!session || !draft) return;
@@ -315,7 +325,8 @@ export function createTextTool(options: TextToolOptions) {
       }
       session = mounted;
       loading = false;
-      host.replaceChildren(session.element, actions);
+      editorBody.replaceChildren(session.element);
+      host.replaceChildren(editorBody, actions);
       host.hidden = false;
       labels();
       positionEditor();
@@ -494,6 +505,10 @@ export function createTextTool(options: TextToolOptions) {
 
   return {
     paint,
+    reflow() {
+      paint();
+      positionEditor();
+    },
     finish,
     isEditing: () => Boolean(session || loading),
     isDragging: () => Boolean(drag),

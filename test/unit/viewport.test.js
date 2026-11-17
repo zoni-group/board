@@ -42,10 +42,10 @@ describe('board viewport', () => {
     expect(worldToScreen(world, panBy(view, { x: 40, y: -20 }), size)).toEqual({ x: 70, y: 70 });
   });
   it('fits full bounds with padding and uses the initial view when empty', () => {
-    const bounds = { x: -1000, y: -800, width: 2000, height: 1600 };
+    const bounds = { x: -500, y: -400, width: 1000, height: 800 };
     const view = fitViewport(bounds, size);
     expect(view.center).toEqual({ x: 0, y: 0 });
-    expect(view.zoom).toBeCloseTo(536 / 1600);
+    expect(view.zoom).toBeCloseTo(536 / 800);
     const corner = worldToScreen(bounds, view, size);
     expect(corner.x).toBeGreaterThanOrEqual(32);
     expect(corner.y).toBeGreaterThanOrEqual(32);
@@ -54,13 +54,20 @@ describe('board viewport', () => {
     expect(visibleBounds(initialViewport(size), size)).toEqual({ x: 0, y: 0, ...size });
     expect(boundsIntersect(bounds, visibleBounds(view, size))).toBe(true);
   });
+  it('stops Fit at 50% even when the whole drawing needs a smaller scale', () => {
+    expect(MIN_ZOOM).toBe(0.5);
+    expect(fitViewport({ x: -1000, y: -800, width: 2000, height: 1600 }, size)).toEqual({
+      center: { x: 0, y: 0 },
+      zoom: 0.5,
+    });
+  });
   it('combines the view and pixel ratio without modifying board coordinates', () => {
     const ctx = { setTransform: vi.fn() };
     applyViewport(ctx, { center: { x: 100, y: -100 }, zoom: 2 }, size, 3);
     expect(ctx.setTransform).toHaveBeenCalledWith(6, 0, 0, 6, 600, 1500);
   });
   it('restores valid local views, rejects corrupt views, and tolerates unavailable storage', () => {
-    const view = { center: { x: -10, y: 75 }, zoom: 0.25 };
+    const view = { center: { x: -10, y: 75 }, zoom: 0.75 };
     saveViewport(view);
     expect(loadViewport()).toEqual(view);
     for (const invalid of [
@@ -77,6 +84,17 @@ describe('board viewport', () => {
       throw new Error('Quota');
     });
     expect(() => saveViewport(view)).not.toThrow();
+  });
+  it('clamps old saved zoom levels while preserving the board center', () => {
+    const center = { x: -1200, y: 800 };
+    for (const [zoom, expected] of [
+      [0.01, MIN_ZOOM],
+      [0.25, MIN_ZOOM],
+      [10, MAX_ZOOM],
+    ]) {
+      localStorage.setItem(VIEWPORT_KEY, JSON.stringify({ version: 1, center, zoom }));
+      expect(loadViewport()).toEqual({ center, zoom: expected });
+    }
   });
 });
 
@@ -98,6 +116,7 @@ describe('whole-board PNG dimensions', () => {
       expect(result.height).toBeLessThanOrEqual(4096);
       expect(result.width * result.height).toBeLessThanOrEqual(8 * 1024 * 1024);
       expect(result.reduced).toBe(true);
+      expect(result.view.zoom).toBeLessThan(MIN_ZOOM);
     }
   });
 });
