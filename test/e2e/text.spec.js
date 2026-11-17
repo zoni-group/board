@@ -237,6 +237,7 @@ test('renders multiline highlights in PNG exports and preserves them after reloa
     expect(Math.abs(preview[index].height - committed[index].height)).toBeLessThan(2);
   }
   await page.reload();
+  await expect(page.locator('#text')).toBeEnabled();
   await expect.poll(async () => (await objects(page))[0]).toEqual(saved);
   await chooseObject(page, 'text');
   await page.locator('#pad').click({ position: { x: 110, y: 155 } });
@@ -391,6 +392,7 @@ test('supports multiline plain-text paste, Unicode, and preserves coordinates on
   expect(before.paragraphs[1].runs).toEqual([]);
   await page.setViewportSize({ width: 700, height: 600 });
   await page.reload();
+  await expect(page.locator('#text')).toBeEnabled();
   await expect.poll(async () => (await objects(page))[0]).toEqual(before);
   expect(external).toEqual([]);
 });
@@ -567,6 +569,7 @@ test('retains recovery data when a board save fails, and allows retrying an unch
     )
     .toBe(null);
   await page.reload();
+  await expect(page.locator('#text')).toBeEnabled();
   await expect
     .poll(async () => (await objects(page))[0]?.paragraphs[0].runs[0].text)
     .toBe('Keep recovery');

@@ -102,6 +102,7 @@ for (const kind of ['rectangle', 'ellipse', 'line', 'arrow']) {
     });
     await expect(page.locator('.shape-selection-actions')).toBeVisible();
     await page.reload();
+    await expect(page.locator('#shapes')).toBeEnabled();
     await expect.poll(async () => (await shapes(page)).length).toBe(1);
     expect((await shapes(page))[0].kind).toBe(kind);
     await expect(page.locator('#shapeLayer')).toBeVisible();
@@ -285,6 +286,7 @@ test('erases whole shapes only on their outlines and undoes a swept gesture in o
   await page.locator('#undo').click();
   await expect.poll(() => shapes(page)).toEqual([a, b]);
   await page.reload();
+  await expect(page.locator('#shapes')).toBeEnabled();
   await expect.poll(() => shapes(page)).toEqual([a, b]);
 });
 
