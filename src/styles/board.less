@@ -1112,6 +1112,27 @@ html.has-iro .color-popup-card{
 .shape-selection-actions { display:flex; gap:4px; }
 .shape-selection-actions button { min-height:36px; padding:6px 10px; font-size:12px; }
 .shape-picker[hidden], .shape-selection-actions[hidden] { display:none; }
+.object-picker button { position:relative; }
+#text::after { content:''; position:absolute; right:5px; bottom:7px; border:3px solid transparent; border-top-color:currentColor; transform:translateY(3px); }
+#text { position:relative; }
+.board-content-panel {
+  position:fixed; z-index:50; display:flex; flex-direction:column;
+  border:1px solid var(--border); border-radius:10px; background:var(--surface);
+  color:var(--btn-fg); box-shadow:var(--shadow); overflow:hidden; touch-action:auto;
+}
+.board-content-panel h2 { font-size:15px; margin:0; padding:10px 12px; flex-shrink:0; }
+.board-content-body { padding:12px; min-height:0; overflow:auto; overscroll-behavior:contain; touch-action:auto; }
+.board-content-body p { font-size:13px; margin:8px 0; }
+.content-panel-actions { display:flex; flex-shrink:0; gap:6px; padding:6px 12px; border-top:1px solid var(--border); }
+.content-panel-actions button, .board-content-body > button { min-height:36px; padding:6px 12px; font-size:13px; }
+.content-form { display:flex; flex-wrap:wrap; gap:12px; }
+.content-form label { display:flex; flex:1 1 110px; flex-direction:column; gap:6px; font-size:13px; }
+.content-form input { width:100%; min-width:0; padding:8px; border:1px solid var(--border); border-radius:6px; background:var(--canvas-bg); color:var(--btn-fg); font:inherit; user-select:text; }
+.board-table-editor .board-content-body { padding:0; }
+.board-table-editor notectl-editor { display:block; width:100%; }
+.board-video-player video, .board-video-player iframe { display:block; width:100%; max-height:50dvh; aspect-ratio:16/9; border:0; background:#000; }
+.board-short-viewport .board-content-panel h2 { padding:4px 8px; font-size:13px; }
+.board-short-viewport .content-panel-actions { padding:4px 8px; }
 #pad.text-tool-active {
   cursor: text;
 }

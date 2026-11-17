@@ -1,7 +1,9 @@
 import { resolveInk, inkBounds, renderInk } from './ink.ts';
 import type { InkObject } from './ink.ts';
 export { drawStroke, applyStrokeStyle, strokeBounds } from './ink.ts';
-import type { BoardCommand, TextObject, ShapeObject } from './model.ts';
+import type { BoardCommand, TextObject, ShapeObject, ContentObject } from './model.ts';
+import { resolveContent, contentBounds, drawContent } from './content.ts';
+import type { ContentPaintOptions } from './content.ts';
 import { drawShape, resolveShapes, shapeBounds } from './shapes.ts';
 import { resolveTextObjects } from './text-scene.ts';
 import { cachedTextLayout, drawText } from './text-layout.ts';
@@ -9,6 +11,7 @@ import { applyViewport, exportGeometry, unionBounds } from './viewport.ts';
 import type { BoardBounds, BoardSize } from './viewport.ts';
 
 export interface BoardScene {
+  content: ContentObject[];
   strokes: InkObject[];
   text: TextObject[];
   shapes: ShapeObject[];
@@ -22,18 +25,21 @@ export function createBoardScene(
   const strokes = resolveInk(commands);
   const text = resolveTextObjects(commands);
   const shapes = resolveShapes(commands);
+  const content = resolveContent(commands);
   let bounds: BoardBounds | null = null;
+  for (const object of content) bounds = unionBounds(bounds, contentBounds(ctx, object));
   for (const stroke of strokes) bounds = unionBounds(bounds, inkBounds(stroke));
   for (const object of text) bounds = unionBounds(bounds, cachedTextLayout(ctx, object).bounds);
   for (const object of shapes) bounds = unionBounds(bounds, shapeBounds(object));
-  return { strokes, text, shapes, bounds };
+  return { strokes, text, shapes, content, bounds };
 }
 
 export function createDrawingCanvas(
   scene: BoardScene,
   size: BoardSize,
   background: string,
-  ink: InkColor
+  ink: InkColor,
+  media?: Pick<ContentPaintOptions, 'image'>
 ) {
   const geometry = exportGeometry(scene.bounds, size);
   const out = document.createElement('canvas'),
@@ -46,6 +52,10 @@ export function createDrawingCanvas(
   renderInk(inkCtx, scene.strokes, geometry.view, geometry, 1, ink);
   ctx.fillStyle = background;
   ctx.fillRect(0, 0, out.width, out.height);
+  applyViewport(ctx, geometry.view, geometry);
+  for (const object of scene.content)
+    drawContent(ctx, object, { image: media?.image ?? (() => null), background, ink });
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.drawImage(inkCanvas, 0, 0);
   applyViewport(ctx, geometry.view, geometry);
   for (const shape of scene.shapes) drawShape(ctx, shape, ink);

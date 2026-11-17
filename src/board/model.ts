@@ -1,4 +1,4 @@
-export const BOARD_SCHEMA_VERSION = 4;
+export const BOARD_SCHEMA_VERSION = 5;
 
 /** Board units: one CSS pixel at 100% zoom, independent of device pixel ratio. */
 export interface Point {
@@ -9,7 +9,10 @@ export interface Point {
 export type StrokeTool = 'pen' | 'eraser';
 export type BoardTool = StrokeTool | 'text' | 'hand' | 'shapes' | 'select';
 
-export type BoardObjectRef = { kind: 'stroke' | 'text' | 'shape'; id: string };
+export type BoardObjectRef = {
+  kind: 'stroke' | 'text' | 'shape' | ContentObject['kind'];
+  id: string;
+};
 
 export type ShapeKind = 'rectangle' | 'ellipse' | 'line' | 'arrow';
 
@@ -52,6 +55,40 @@ export interface TextObject {
   position: Point;
   paragraphs: TextParagraph[];
 }
+
+interface MediaBox {
+  id: string;
+  position: Point;
+  width: number;
+  height: number;
+  title: string;
+}
+export interface ImageObject extends MediaBox {
+  kind: 'image';
+  assetId: string;
+}
+export type VideoSource =
+  | { kind: 'local'; assetId: string }
+  | { kind: 'youtube'; videoId: string }
+  | { kind: 'vimeo'; videoId: string; hash?: string };
+export interface VideoObject extends MediaBox {
+  kind: 'video';
+  source: VideoSource;
+}
+export const MAX_TABLE_ROWS = 50;
+export const MAX_TABLE_COLUMNS = 20;
+export interface TableObject {
+  kind: 'table';
+  id: string;
+  position: Point;
+  columnWidths: number[];
+  rows: { minHeight: number; cells: TextParagraph[][] }[];
+  borderRaw: string;
+}
+export type ContentObject = ImageObject | VideoObject | TableObject;
+export type ContentCommand =
+  | { type: 'content-set'; object: ContentObject }
+  | { type: 'content-delete'; ids: string[] };
 
 export interface TextSetCommand {
   type: 'text-set';
@@ -96,6 +133,7 @@ export interface ClearCommand {
 }
 
 export type BoardCommand =
+  | ContentCommand
   | StrokeCommand
   | ClearCommand
   | TextSetCommand
@@ -215,8 +253,119 @@ export function isEmptyText(object: TextObject): boolean {
   return object.paragraphs.every((p) => p.runs.every((run) => run.text.trim() === ''));
 }
 
+export function normalizeVideoSource(value: unknown): VideoSource | null {
+  if (!isRecord(value)) return null;
+  if (value.kind === 'local')
+    return typeof value.assetId === 'string' && value.assetId.length > 0
+      ? { kind: 'local', assetId: value.assetId }
+      : null;
+  if (
+    value.kind === 'youtube' &&
+    typeof value.videoId === 'string' &&
+    /^[\w-]{11}$/.test(value.videoId)
+  )
+    return { kind: 'youtube', videoId: value.videoId };
+  if (
+    value.kind === 'vimeo' &&
+    typeof value.videoId === 'string' &&
+    /^\d{1,12}$/.test(value.videoId)
+  ) {
+    if (
+      value.hash !== undefined &&
+      (typeof value.hash !== 'string' || !/^[a-z\d]{1,64}$/i.test(value.hash))
+    )
+      return null;
+    return { kind: 'vimeo', videoId: value.videoId, ...(value.hash ? { hash: value.hash } : {}) };
+  }
+  return null;
+}
+
+export function normalizeContentObject(value: unknown): ContentObject | null {
+  if (!isRecord(value) || typeof value.id !== 'string' || !value.id) return null;
+  const position = normalizePoint(value.position);
+  if (!position) return null;
+  if (value.kind === 'table') {
+    if (
+      !Array.isArray(value.columnWidths) ||
+      !value.columnWidths.length ||
+      value.columnWidths.length > MAX_TABLE_COLUMNS ||
+      !value.columnWidths.every((n) => isFiniteNumber(n) && n >= 60 && n <= 10000) ||
+      !Array.isArray(value.rows) ||
+      !value.rows.length ||
+      value.rows.length > MAX_TABLE_ROWS ||
+      typeof value.borderRaw !== 'string' ||
+      (value.borderRaw !== 'none' && !/^#[\da-f]{6}$/i.test(value.borderRaw))
+    )
+      return null;
+    const rows: TableObject['rows'] = [];
+    for (const row of value.rows) {
+      if (
+        !isRecord(row) ||
+        !isFiniteNumber(row.minHeight) ||
+        row.minHeight < 24 ||
+        row.minHeight > 10000 ||
+        !Array.isArray(row.cells) ||
+        row.cells.length !== value.columnWidths.length
+      )
+        return null;
+      const cells: TextParagraph[][] = [];
+      for (const cell of row.cells) {
+        const text = normalizeTextObject({ id: value.id, position, paragraphs: cell });
+        if (!text) return null;
+        cells.push(text.paragraphs);
+      }
+      rows.push({ minHeight: row.minHeight, cells });
+    }
+    return {
+      kind: 'table',
+      id: value.id,
+      position,
+      columnWidths: [...value.columnWidths] as number[],
+      rows,
+      borderRaw: value.borderRaw,
+    };
+  }
+  if (
+    (value.kind !== 'image' && value.kind !== 'video') ||
+    !isFiniteNumber(value.width) ||
+    value.width <= 0 ||
+    value.width > 100000 ||
+    !isFiniteNumber(value.height) ||
+    value.height <= 0 ||
+    value.height > 100000 ||
+    typeof value.title !== 'string' ||
+    value.title.length > 500
+  )
+    return null;
+  const box = {
+    id: value.id,
+    position,
+    width: value.width,
+    height: value.height,
+    title: value.title,
+  };
+  if (value.kind === 'image')
+    return typeof value.assetId === 'string' && value.assetId
+      ? { ...box, kind: 'image', assetId: value.assetId }
+      : null;
+  const source = normalizeVideoSource(value.source);
+  return source ? { ...box, kind: 'video', source } : null;
+}
+
+export function cloneContentObject<T extends ContentObject>(object: T): T {
+  return structuredClone(object);
+}
+
 export function normalizeCommand(command: unknown, legacyStrokeId?: string): BoardCommand | null {
   if (!isRecord(command)) return null;
+  if (command.type === 'content-set') {
+    const object = normalizeContentObject(command.object);
+    return object ? { type: 'content-set', object } : null;
+  }
+  if (command.type === 'content-delete') {
+    const ids = normalizeIds(command.ids);
+    return ids.length ? { type: 'content-delete', ids } : null;
+  }
   if (command.type === 'clear') return { type: 'clear' };
   if (command.type === 'stroke-delete') {
     const ids = normalizeIds(command.ids);
@@ -310,6 +459,10 @@ export function assertNever(value: never): never {
 
 export function cloneCommand(command: BoardCommand): BoardCommand {
   switch (command.type) {
+    case 'content-set':
+      return { type: 'content-set', object: cloneContentObject(command.object) };
+    case 'content-delete':
+      return { type: 'content-delete', ids: [...command.ids] };
     case 'clear':
       return { type: 'clear' };
     case 'shape-set':

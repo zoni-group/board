@@ -189,7 +189,7 @@ describe('board storage', () => {
         const boardStorage = await import('../../src/board/storage.ts');
         localStorage.setItem(boardStorage.BOARD_DRAWING_KEY, raw);
         const restored = await boardStorage.loadBoardDrawing();
-        expect(restored).toMatchObject({ version: 4, commands: [], redoCommands: [] });
+        expect(restored).toMatchObject({ version: 5, commands: [], redoCommands: [] });
         expect(Number.isFinite(restored.updatedAtMs)).toBe(true);
       } finally {
         vi.unstubAllGlobals();
@@ -237,12 +237,12 @@ describe('board storage', () => {
       const restored = await boardStorage.loadBoardDrawing();
       expect(restored.commands).toEqual(legacy.commands);
       expect(restored.redoCommands).toEqual(legacy.redoCommands);
-      expect(restored.version).toBe(4);
+      expect(restored.version).toBe(5);
       expect(JSON.parse(localStorage.getItem(boardStorage.LEGACY_BOARD_DRAWING_KEY))).toEqual(
         legacy
       );
       expect(fakeIndexedDb.__records.get(boardStorage.BOARD_DRAWING_KEY)).toMatchObject({
-        version: 4,
+        version: 5,
         commandCount: 106,
         chunkCount: 2,
         redoCount: 1,
@@ -262,7 +262,7 @@ describe('board storage', () => {
       fakeIndexedDb.__records.set(boardStorage.BOARD_DRAWING_KEY, 42);
       const legacy = { version: 1, updatedAtMs: 1, commands: [createStroke(1)], redoCommands: [] };
       localStorage.setItem(boardStorage.BOARD_DRAWING_KEY, JSON.stringify(legacy));
-      expect(await boardStorage.loadBoardDrawing()).toEqual({ ...legacy, version: 4 });
+      expect(await boardStorage.loadBoardDrawing()).toEqual({ ...legacy, version: 5 });
     } finally {
       vi.unstubAllGlobals();
       vi.resetModules();
@@ -295,7 +295,7 @@ describe('board storage', () => {
       database.__records.set('boardChunk:v3:v3-original:history:1', commands.slice(100));
       database.__records.set('boardChunk:v3:v3-original:redo:0', [redo]);
       const first = await storage.loadBoardDrawing();
-      expect(first.version).toBe(4);
+      expect(first.version).toBe(5);
       expect(first.commands).toHaveLength(115);
       const ids = [...first.commands, ...first.redoCommands]
         .filter((c) => c.tool === 'pen')
@@ -320,6 +320,58 @@ describe('board storage', () => {
       vi.resetModules();
     }
   });
+
+  for (const medium of ['local', 'indexed']) {
+    it(`migrates v4 selection edits and redo from ${medium} without changing originals`, async () => {
+      const database = createFakeIndexedDb();
+      vi.stubGlobal('indexedDB', database);
+      vi.resetModules();
+      try {
+        const storage = await import('../../src/board/storage.ts');
+        const commands = [
+          createStroke(1),
+          { type: 'stroke-edit', id: 'pen-1', translate: { x: 12, y: -24 } },
+          { type: 'text-set', object: textObject() },
+        ];
+        const redoCommands = [{ type: 'stroke-delete', ids: ['pen-1'] }];
+        const legacy = { version: 4, updatedAtMs: 123, commands, redoCommands };
+        let metadata;
+        if (medium === 'local')
+          localStorage.setItem(storage.OBJECTS_BOARD_DRAWING_KEY, JSON.stringify(legacy));
+        else {
+          metadata = {
+            version: 4,
+            updatedAtMs: 123,
+            generation: 'v4-original',
+            commandCount: commands.length,
+            redoCount: 1,
+            chunkCount: 1,
+            redoChunkCount: 1,
+          };
+          database.__records.set(storage.OBJECTS_BOARD_DRAWING_KEY, metadata);
+          database.__records.set('boardChunk:v4:v4-original:history:0', commands);
+          database.__records.set('boardChunk:v4:v4-original:redo:0', redoCommands);
+        }
+        expect(await storage.loadBoardDrawing()).toMatchObject({
+          commands,
+          redoCommands,
+          version: 5,
+        });
+        expect(database.__records.get(storage.BOARD_DRAWING_KEY).version).toBe(5);
+        if (medium === 'local')
+          expect(JSON.parse(localStorage.getItem(storage.OBJECTS_BOARD_DRAWING_KEY))).toEqual(
+            legacy
+          );
+        else {
+          expect(database.__records.get(storage.OBJECTS_BOARD_DRAWING_KEY)).toEqual(metadata);
+          expect(database.__records.get('boardChunk:v4:v4-original:history:0')).toEqual(commands);
+        }
+      } finally {
+        vi.unstubAllGlobals();
+        vi.resetModules();
+      }
+    });
+  }
 
   it('loads v3 embedded strokes with stable IDs when there is no room for migration', async () => {
     vi.stubGlobal('indexedDB', undefined);
@@ -374,7 +426,7 @@ describe('board storage', () => {
         }
         const original = cloneJson([...database.__records]);
         expect(await storage.loadBoardDrawing()).toMatchObject({
-          version: 4,
+          version: 5,
           commands,
           redoCommands,
         });
@@ -383,7 +435,7 @@ describe('board storage', () => {
           expect(JSON.parse(localStorage.getItem(storage.PREVIOUS_BOARD_DRAWING_KEY))).toEqual(
             legacy
           );
-        expect(database.__records.get(storage.BOARD_DRAWING_KEY).version).toBe(4);
+        expect(database.__records.get(storage.BOARD_DRAWING_KEY).version).toBe(5);
       } finally {
         vi.unstubAllGlobals();
         vi.resetModules();
@@ -403,7 +455,7 @@ describe('board storage', () => {
         redoCommands: [createStroke(2)],
       };
       database.__records.set(storage.PREVIOUS_BOARD_DRAWING_KEY, legacy);
-      expect(await storage.loadBoardDrawing()).toMatchObject({ ...legacy, version: 4 });
+      expect(await storage.loadBoardDrawing()).toMatchObject({ ...legacy, version: 5 });
       expect(database.__records.get(storage.PREVIOUS_BOARD_DRAWING_KEY)).toEqual(legacy);
     } finally {
       vi.unstubAllGlobals();
@@ -466,7 +518,7 @@ describe('board storage', () => {
       database.__records.set('boardChunk:old:redo:0', [createStroke(2)]);
       const restored = await storage.loadBoardDrawing();
       expect(restored).toMatchObject({
-        version: 4,
+        version: 5,
         commands: [createStroke(1)],
         redoCommands: [createStroke(2)],
       });
@@ -507,7 +559,7 @@ describe('board storage', () => {
 
   it('reports a transaction abort even after the write request succeeds', async () => {
     const database = createFakeIndexedDb({
-      shouldAbortAfterPut: (key) => key === 'vatio_board_drawing_v4',
+      shouldAbortAfterPut: (key) => key === 'vatio_board_drawing_v5',
     });
     vi.stubGlobal('indexedDB', database);
     vi.resetModules();
@@ -539,7 +591,7 @@ describe('board storage', () => {
         throw new Error('Quota exceeded');
       });
       expect(await storage.loadBoardDrawing()).toMatchObject({
-        version: 4,
+        version: 5,
         commands: [createStroke(1)],
         redoCommands: [createStroke(2)],
       });

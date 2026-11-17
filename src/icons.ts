@@ -170,6 +170,10 @@ export const IconPlay = `
   </svg>
 `;
 
+export const IconImage = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="2" stroke="currentColor" stroke-width="1.6"/><circle cx="9" cy="9" r="1.5" fill="currentColor"/><path d="m4 17 5-5 4 4 3-3 4 4" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+export const IconTable = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M4 9h16M4 14.5h16M10 9v11M15.5 9v11" stroke="currentColor" stroke-width="1.5"/></svg>`;
+export const IconVideo = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="m10 8 6 4-6 4z" fill="currentColor"/></svg>`;
+
 export const IconPause = `
   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <rect x="7" y="6.5" width="3.5" height="11" rx="1.2" fill="currentColor"/>

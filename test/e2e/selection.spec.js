@@ -1,3 +1,4 @@
+import { chooseObject } from '../helpers/object-picker.js';
 import { test, expect } from '@playwright/test';
 import { textObject } from '../helpers/text-fixture.js';
 
@@ -393,7 +394,7 @@ test('a second touch cancels movement begun with the existing Text Move handle',
 }) => {
   const commands = fixture('text');
   await seed(page, commands);
-  await page.locator('#text').click();
+  await chooseObject(page, 'text');
   await page.locator('#pad').click({ position: { x: 100, y: 120 } });
   const move = page.getByRole('button', { name: 'Move', exact: true });
   const rect = await move.boundingBox();
@@ -420,7 +421,7 @@ test('a second touch cancels movement begun with the existing Text Move handle',
 test('blocks switching to Select during text composition and preserves text editor undo', async ({
   page,
 }) => {
-  await page.locator('#text').click();
+  await chooseObject(page, 'text');
   await page.locator('#pad').click({ position: { x: 80, y: 100 } });
   const input = page.locator('notectl-editor').getByRole('textbox');
   await input.pressSequentially('Draft');
@@ -453,7 +454,7 @@ test('reports failed object saves, preserves the previous snapshot and retries t
   await page.evaluate(() => {
     const put = IDBObjectStore.prototype.put;
     IDBObjectStore.prototype.put = function (value, key) {
-      if (key === 'vatio_board_drawing_v4' && !window.allowObjectSave)
+      if (key === 'vatio_board_drawing_v5' && !window.allowObjectSave)
         throw new DOMException('Quota exceeded', 'QuotaExceededError');
       return put.call(this, value, key);
     };

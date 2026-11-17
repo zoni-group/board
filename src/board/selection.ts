@@ -1,5 +1,10 @@
 import { t } from '../i18n.ts';
-import { cloneShapeObject, cloneTextObject, normalizeShapeObject } from './model.ts';
+import {
+  cloneShapeObject,
+  cloneTextObject,
+  cloneContentObject,
+  normalizeShapeObject,
+} from './model.ts';
 import type {
   BoardCommand,
   BoardObjectRef,
@@ -7,7 +12,9 @@ import type {
   Point,
   ShapeObject,
   TextObject,
+  ContentObject,
 } from './model.ts';
+import { contentBounds, contentCorners, resizeMedia } from './content.ts';
 import { hitInk, inkBounds } from './ink.ts';
 import type { InkObject } from './ink.ts';
 import type { BoardScene } from './scene-renderer.ts';
@@ -27,7 +34,10 @@ import { panelArea } from './screen-layout.ts';
 type SelectedObject =
   | { kind: 'stroke'; value: InkObject }
   | { kind: 'shape'; value: ShapeObject }
-  | { kind: 'text'; value: TextObject };
+  | { kind: 'text'; value: TextObject }
+  | {
+      [K in ContentObject['kind']]: { kind: K; value: Extract<ContentObject, { kind: K }> };
+    }[ContentObject['kind']];
 interface SelectionOptions {
   canvas: HTMLCanvasElement;
   textContext: CanvasRenderingContext2D;
@@ -38,7 +48,7 @@ interface SelectionOptions {
   hidden(): boolean;
   redraw(): void;
   commit(command: BoardCommand): Promise<boolean>;
-  editText(id: string): void;
+  editObject(ref: BoardObjectRef): void;
   changed(ref: BoardObjectRef | null, style: { size: number; inkRaw: string } | null): void;
   beginGrip(event: PointerEvent, ref: BoardObjectRef): void;
   status(message: string): void;
@@ -92,6 +102,12 @@ export function createSelection(options: SelectionOptions) {
         const value = scene.text.find((o) => o.id === target.id);
         return value ? { kind: 'text', value } : null;
       }
+      case 'image':
+      case 'video':
+      case 'table': {
+        const value = scene.content.find((o) => o.id === target.id && o.kind === target.kind);
+        return value ? ({ kind: value.kind, value } as SelectedObject) : null;
+      }
     }
   }
   function bounds(object: SelectedObject): BoardBounds {
@@ -102,6 +118,10 @@ export function createSelection(options: SelectionOptions) {
         return shapeBounds(object.value);
       case 'text':
         return cachedTextLayout(options.textContext, object.value).bounds;
+      case 'image':
+      case 'video':
+      case 'table':
+        return contentBounds(options.textContext, object.value);
     }
   }
   function point(event: { clientX: number; clientY: number }): Point {
@@ -136,6 +156,14 @@ export function createSelection(options: SelectionOptions) {
         value.position.y += delta.y;
         return { kind: 'text', value };
       }
+      case 'image':
+      case 'video':
+      case 'table': {
+        const value = cloneContentObject(original.value);
+        value.position.x += delta.x;
+        value.position.y += delta.y;
+        return { kind: value.kind, value } as SelectedObject;
+      }
     }
   }
   function command(original: SelectedObject, next: SelectedObject): BoardCommand | null {
@@ -167,6 +195,13 @@ export function createSelection(options: SelectionOptions) {
     if (original.kind === 'text' && next.kind === 'text')
       return JSON.stringify(original.value) !== JSON.stringify(next.value)
         ? { type: 'text-set', object: next.value }
+        : null;
+    if (
+      (next.kind === 'image' || next.kind === 'video' || next.kind === 'table') &&
+      original.kind === next.kind
+    )
+      return JSON.stringify(original.value) !== JSON.stringify(next.value)
+        ? { type: 'content-set', object: next.value }
         : null;
     return null;
   }
@@ -206,7 +241,7 @@ export function createSelection(options: SelectionOptions) {
     outline.id = object.kind === 'text' ? 'textSelection' : 'objectSelection';
     outline.className = `object-selection ${object.kind === 'text' ? 'text-selection' : ''}`;
     outline.setAttribute('aria-label', t('selectedObject'));
-    actions.className = `object-selection-actions ${object.kind === 'text' ? 'text-selection-actions' : object.kind === 'shape' ? 'shape-selection-actions' : 'stroke-selection-actions'}`;
+    actions.className = `object-selection-actions ${object.kind}-selection-actions`;
     actions.setAttribute('aria-label', t('selectedObject'));
     Object.assign(outline.style, {
       left: `${anchor.x}px`,
@@ -214,7 +249,12 @@ export function createSelection(options: SelectionOptions) {
       width: `${area.width * view.zoom}px`,
       height: `${area.height * view.zoom}px`,
     });
-    const corners = object.kind === 'shape' ? shapeHandles(object.value) : [];
+    const corners =
+      object.kind === 'shape'
+        ? shapeHandles(object.value)
+        : object.kind === 'image' || object.kind === 'video'
+          ? contentCorners(options.textContext, object.value)
+          : [];
     handles.forEach((handle, index) => {
       const corner = corners[index];
       handle.hidden = !corner;
@@ -224,7 +264,8 @@ export function createSelection(options: SelectionOptions) {
       }
     });
     move.hidden = !(object.kind === 'text' && options.tool() === 'text');
-    edit.hidden = object.kind !== 'text';
+    edit.hidden = object.kind === 'stroke' || object.kind === 'shape' || object.kind === 'image';
+    edit.textContent = t(object.kind === 'video' ? 'playVideo' : 'editText');
     done.hidden = object.kind === 'text' && options.tool() === 'text';
     actions.hidden ||= Boolean(drag);
     if (!actions.hidden) {
@@ -274,7 +315,7 @@ export function createSelection(options: SelectionOptions) {
     draft = null;
     paint();
   }
-  function hit(event: PointerEvent): BoardObjectRef | null {
+  function hit(event: MouseEvent & { pointerType?: string }): BoardObjectRef | null {
     const p = point(event),
       zoom = options.view().zoom,
       padding = event.pointerType === 'touch' ? 10 : 6;
@@ -286,6 +327,9 @@ export function createSelection(options: SelectionOptions) {
       if (hitShape(value, p, padding / zoom)) return { kind: 'shape', id: value.id };
     for (const value of [...scene.strokes].reverse())
       if (hitInk(value, p, zoom, padding)) return { kind: 'stroke', id: value.id };
+    for (const value of [...scene.content].reverse())
+      if (containsPoint(contentBounds(options.textContext, value), p, padding / zoom))
+        return { kind: value.kind, id: value.id };
     return null;
   }
   function begin(event: PointerEvent, target: BoardObjectRef, handle = -1) {
@@ -322,6 +366,9 @@ export function createSelection(options: SelectionOptions) {
         );
       }
       draft = { kind: 'shape', value };
+    } else if (drag.handle >= 0 && (original.kind === 'image' || original.kind === 'video')) {
+      const value = resizeMedia(original.value, drag.handle, p);
+      draft = { kind: value.kind, value } as SelectedObject;
     } else draft = translate(original, { x: p.x - drag.start.x, y: p.y - drag.start.y });
     options.redraw();
   }
@@ -340,7 +387,7 @@ export function createSelection(options: SelectionOptions) {
   }
   function editSelected() {
     flushStyle();
-    if (ref?.kind === 'text') options.editText(ref.id);
+    if (ref) options.editObject(ref);
   }
   function removeSelected() {
     if (!ref || !lookup()) return;
@@ -351,7 +398,9 @@ export function createSelection(options: SelectionOptions) {
         ? 'stroke-delete'
         : ref.kind === 'shape'
           ? 'shape-delete'
-          : 'text-delete';
+          : ref.kind === 'text'
+            ? 'text-delete'
+            : 'content-delete';
     const id = ref.id;
     ref = null;
     commit({ type, ids: [id] });
@@ -376,6 +425,14 @@ export function createSelection(options: SelectionOptions) {
     if (event.key === 'Shift' && drag) update(drag.latest, false);
   });
   window.addEventListener('pagehide', flushStyle);
+  canvas.addEventListener('dblclick', (event) => {
+    if (options.tool() !== 'select' || options.editing()) return;
+    const target = hit(event);
+    if (target) {
+      select(target);
+      editSelected();
+    }
+  });
   return {
     current: () => (lookup() ? ref : null),
     select,
@@ -394,7 +451,13 @@ export function createSelection(options: SelectionOptions) {
               point(event),
               (event.pointerType === 'touch' ? 22 : 10) / options.view().zoom
             )
-          : -1;
+          : object?.kind === 'image' || object?.kind === 'video'
+            ? contentCorners(options.textContext, object.value).findIndex(
+                (corner) =>
+                  Math.hypot(corner.x - point(event).x, corner.y - point(event).y) <=
+                  (event.pointerType === 'touch' ? 22 : 10) / options.view().zoom
+              )
+            : -1;
       const target = handle >= 0 ? ref : hit(event);
       if (target) begin(event, target, handle);
       else clear();
@@ -411,6 +474,12 @@ export function createSelection(options: SelectionOptions) {
     },
     displayText(object: TextObject): TextObject {
       return draft?.kind === 'text' && draft.value.id === object.id ? draft.value : object;
+    },
+    displayContent(object: ContentObject): ContentObject {
+      return (draft?.kind === 'image' || draft?.kind === 'video' || draft?.kind === 'table') &&
+        draft.value.id === object.id
+        ? draft.value
+        : object;
     },
     updateStyle(style: Partial<Pick<ShapeObject, 'size' | 'inkRaw'>>) {
       if (drag || options.editing()) return;
@@ -465,7 +534,10 @@ export function createSelection(options: SelectionOptions) {
         removeSelected();
         return true;
       }
-      if (event.key === 'Enter' && object.kind === 'text') {
+      if (
+        event.key === 'Enter' &&
+        (object.kind === 'text' || object.kind === 'table' || object.kind === 'video')
+      ) {
         event.preventDefault();
         editSelected();
         return true;

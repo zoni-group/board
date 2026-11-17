@@ -1,10 +1,11 @@
+import { chooseObject } from '../helpers/object-picker.js';
 import { test, expect } from '@playwright/test';
 
 async function editor(page) {
   return page.locator('notectl-editor').getByRole('textbox');
 }
 async function startText(page, text = 'Hello world') {
-  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await chooseObject(page, 'text');
   await page.locator('#pad').click({ position: { x: 100, y: 150 } });
   const input = await editor(page);
   await expect(input).toBeVisible();
@@ -44,7 +45,7 @@ async function removeHighlight(page) {
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('button', { name: 'Text', exact: true })).toBeEnabled();
+  await expect(page.locator('#text')).toBeEnabled();
 });
 
 for (const [language, placeholder] of [
@@ -58,7 +59,7 @@ for (const [language, placeholder] of [
     await page.evaluate((language) => localStorage.setItem('vatio_board_lang', language), language);
     await page.reload();
     await expect(page.locator('#text')).toBeEnabled();
-    await page.locator('#text').click();
+    await chooseObject(page, 'text');
     await page.locator('#pad').click({ position: { x: 80, y: 150 } });
     const input = await editor(page);
     await expect(input).toBeVisible();
@@ -233,7 +234,7 @@ test('renders multiline highlights in PNG exports and preserves them after reloa
   }
   await page.reload();
   await expect.poll(async () => (await objects(page))[0]).toEqual(saved);
-  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await chooseObject(page, 'text');
   await page.locator('#pad').click({ position: { x: 110, y: 155 } });
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   const restored = (await editor(page)).locator('[style*="background-color"]');
@@ -480,7 +481,7 @@ test('closes formatting popups without cancelling text and ignores finish during
 
 test('creates, highlights, and selects text with touch taps', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Touch profile only');
-  await page.getByRole('button', { name: 'Text', exact: true }).tap();
+  await chooseObject(page, 'text', true);
   const board = await page.locator('#pad').boundingBox();
   await page.touchscreen.tap(board.x + 40, board.y + 100);
   const input = await editor(page);
@@ -526,7 +527,7 @@ test('retains recovery data when a board save fails, and allows retrying an unch
     Object.defineProperty(window, 'indexedDB', { value: undefined });
     const setItem = Storage.prototype.setItem;
     Storage.prototype.setItem = function (key, value) {
-      if (key === 'vatio_board_drawing_v4' && !window.allowBoardSave)
+      if (key === 'vatio_board_drawing_v5' && !window.allowBoardSave)
         throw new DOMException('Quota exceeded', 'QuotaExceededError');
       return setItem.call(this, key, value);
     };
@@ -571,7 +572,7 @@ test('does not mount a stale editor after switching away while its code loads', 
     await waiting;
     await route.continue();
   });
-  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await chooseObject(page, 'text');
   await page.locator('#pad').click({ position: { x: 100, y: 150 } });
   await page.getByRole('button', { name: 'Pen', exact: true }).click();
   release();
@@ -616,10 +617,10 @@ test('keeps inline layout across theme changes and supports the Spanish editor',
   if (isMobile) {
     await page.evaluate(() => localStorage.setItem('vatio_board_lang', 'es'));
     await page.reload();
-    await page.getByRole('button', { name: 'Texto', exact: true }).click();
+    await chooseObject(page, 'text');
     await page.locator('#pad').click({ position: { x: 110, y: 155 } });
   } else await page.locator('#langToggle').click();
-  await expect(page.getByRole('button', { name: 'Texto', exact: true })).toBeVisible();
+  await expect(page.locator('#text')).toBeVisible();
   await page.getByRole('button', { name: 'Editar', exact: true }).click();
   await expect(await editor(page)).toBeVisible();
   await expect(

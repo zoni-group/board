@@ -23,6 +23,8 @@ export function resolveShapes(commands: readonly BoardCommand[]): ShapeObject[] 
       case 'text-delete':
       case 'stroke-edit':
       case 'stroke-delete':
+      case 'content-set':
+      case 'content-delete':
         break;
       default:
         assertNever(command);

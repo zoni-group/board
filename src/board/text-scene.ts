@@ -22,6 +22,8 @@ export function resolveTextObjects(commands: readonly BoardCommand[]): TextObjec
       case 'shape-delete':
       case 'stroke-edit':
       case 'stroke-delete':
+      case 'content-set':
+      case 'content-delete':
         break;
       default:
         assertNever(command);

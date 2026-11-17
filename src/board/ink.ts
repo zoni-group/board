@@ -80,6 +80,8 @@ export function resolveInk(commands: readonly BoardCommand[]): InkObject[] {
       case 'shape-delete':
       case 'text-set':
       case 'text-delete':
+      case 'content-set':
+      case 'content-delete':
         break;
       default:
         assertNever(command);

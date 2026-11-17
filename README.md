@@ -16,6 +16,7 @@ What it does:
 - full-screen drawing canvas with pen and eraser tools
 - brush size control, preset swatches, and an `iro` color picker
 - editable, movable text blocks with selected-word formatting
+- images, formatted tables, and video cards through the Text button's **Add object** picker
 - undo, redo, clear, and PNG download
 - local autosave of drawing history using IndexedDB with `localStorage` fallback
 - English/Spanish language toggle
@@ -101,8 +102,8 @@ Vite bundles the application, while `npm run typecheck` checks types. Production
 including CI and deployment, run the type check before bundling.
 
 `src/board/model.ts` defines the shared drawing commands, snapshots, validation, and cloning.
-Storage reads are treated as unknown until normalized. Version 1–3 drawings migrate to isolated
-version 4 metadata and chunks; the original records remain intact for older tabs and rollback.
+Storage reads are treated as unknown until normalized. Version 1–4 drawings migrate to isolated
+version 5 metadata and chunks; the original records remain intact for older tabs and rollback.
 Each pen stroke receives a stable identity, including strokes in redo history. Small edit commands
 record translation and style changes without duplicating or rewriting the original points.
 
@@ -114,9 +115,10 @@ remain local to the browser.
 ## Selecting and Editing Objects
 
 Choose **Select** (the pointer beside Hand), or press **V** with the board focused. Click or tap
-one pen stroke, text block, or shape to select it. Drag the object to move it; clicking empty
+one pen stroke, text block, shape, image, table, or video card to select it. Drag the object to move it; clicking empty
 space deselects. Text is picked above shapes, and shapes above ink, following the drawing's
-visible layer order. Each pen-down/up gesture is one object; freehand drawings with several
+visible layer order. Images, tables, and video cards sit beneath ink in their creation order.
+Each pen-down/up gesture is one object; freehand drawings with several
 strokes are edited one stroke at a time.
 
 Use **Delete** or Delete/Backspace to remove the selected object. **Done** or Escape deselects;
@@ -145,9 +147,44 @@ Selection supports one object at a time. Grouping, box selection, pen/text geome
 rotation and new fill/opacity attributes are outside this version's scope. No runtime dependency
 or remote storage is added.
 
+## Images, Tables, and Videos
+
+The former Text button is now **Add object**, with four choices: **Text**, **Image**, **Table**,
+and **Video**. Shapes retain their separate button. The object button displays the last choice;
+opening it always shows all four options.
+
+- **Image:** choose PNG, JPEG, or WebP (up to 10 MiB), drop one file onto the board, or paste an
+  image while the board has focus. Images larger than 4096 pixels on their longest side are
+  reduced before saving. Images preserve their proportions when resized with selection handles.
+- **Table:** choose an initial row/column count (3 × 3 by default). The lazy-loaded notectl editor
+  supports bold/italic text, sizes, colors, highlights, alignment, row/column insertion and deletion,
+  border colors, column widths, and minimum row heights. Text wraps and rows grow to fit. Use
+  **Done** or Ctrl/⌘+Enter to save one board operation, or **Cancel**/Escape to discard the session.
+  Edit a selected table with **Edit**, Enter, or double-click. Tables support up to 50 rows and
+  20 columns; merged/nested cells, formulas, and media inside cells are outside this version.
+- **Video:** import MP4/WebM (up to 100 MiB, depending on browser codec support), or enter an HTTPS
+  YouTube/Vimeo video URL. Select the card and choose **Play video**, press Enter, or double-click
+  to open a focused player. Playback uses native controls or the provider's player. Closing the
+  player stops playback. Hosted videos require a connection; provider requests start only when
+  the player is opened. No remote thumbnails or metadata are fetched during insertion.
+
+Images and videos use a separate local IndexedDB asset store. Binary data never enters command
+history or `localStorage`; history contains asset IDs and object metadata. Asset saving must
+complete before insertion. If browser storage is unavailable or full, the import reports the
+failure and leaves the board intact. Existing drawings, tables, and hosted video cards can still
+use the regular history fallback. Deleted/Cleared assets are retained for Undo, Redo, and saved
+recovery generations; automatic asset pruning is deferred. Clearing browser site data removes
+locally saved media along with the board.
+
+Select moves and deletes all three object types. Images/video cards have corner resize handles;
+table dimensions are adjusted in its editor. Erasing annotations preserves underlying media and
+tables. Fit and PNG export include every object, including those beyond the current view. PNGs
+contain image pixels, formatted tables, and video poster/title cards. Missing assets remain as
+identifiable placeholders. Dialogs scroll internally and keep the navigation strip visible.
+
 ## Text Tool
 
-Select **Text**, then click or tap the board to type. The editor supports selected-word bold,
+Open **Add object** (the former Text button), choose **Text**, then click or tap the board to type. The editor supports selected-word bold,
 italic, text color, highlighting, and font size, with alignment per paragraph. Highlight offers
 yellow, green, blue, pink, and orange backgrounds; choose **None** to remove it. Select words
 to highlight them, or choose a color at the caret to highlight text as you type. Highlighting
