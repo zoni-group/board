@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { chooseObject } from '../helpers/object-picker.js';
+import { selectPen } from '../helpers/pen-picker.js';
 
 async function waitUntilControlled(page) {
   await page.evaluate(async () => {
@@ -25,7 +26,7 @@ test('opens and uses every tool without a connection after one online visit', as
   await expect(page.locator('#boards')).toBeEnabled();
 
   // Draw, then make sure the stroke survives an offline reload.
-  await page.locator('#pen').click();
+  await selectPen(page);
   await page.locator('#pad').click({ position: { x: 120, y: 120 } });
   await expect(page.locator('#undo')).toBeEnabled();
 

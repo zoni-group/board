@@ -15,7 +15,7 @@ import type {
   ContentObject,
 } from './model.ts';
 import { contentBounds, contentCorners, resizeMedia } from './content.ts';
-import { hitInk, inkBounds } from './ink.ts';
+import { hitInk, inkBounds, inkPaintOrder } from './ink.ts';
 import type { InkObject } from './ink.ts';
 import type { BoardScene } from './scene-renderer.ts';
 import { cachedTextLayout, containsPoint } from './text-layout.ts';
@@ -325,7 +325,7 @@ export function createSelection(options: SelectionOptions) {
         return { kind: 'text', id: value.id };
     for (const value of [...scene.shapes].reverse())
       if (hitShape(value, p, padding / zoom)) return { kind: 'shape', id: value.id };
-    for (const value of [...scene.strokes].reverse())
+    for (const value of inkPaintOrder(scene.strokes).reverse())
       if (hitInk(value, p, zoom, padding)) return { kind: 'stroke', id: value.id };
     for (const value of [...scene.content].reverse())
       if (containsPoint(contentBounds(options.textContext, value), p, padding / zoom))

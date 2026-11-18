@@ -90,6 +90,21 @@ export function resolveInk(commands: readonly BoardCommand[]): InkObject[] {
   return [...objects.values()];
 }
 
+/** Highlights stay see-through; one stroke() per path, so a stroke never darkens itself. */
+export const HIGHLIGHT_ALPHA = 0.35;
+
+export function isHighlighter(stroke: StrokeCommand): boolean {
+  return stroke.tool === 'pen' && stroke.pen === 'highlighter';
+}
+
+/** Paint order: highlights under all pen ink, creation order within each group. */
+export function inkPaintOrder<T extends InkObject>(objects: readonly T[]): T[] {
+  const highlights: T[] = [],
+    ink: T[] = [];
+  for (const object of objects) (isHighlighter(object.stroke) ? highlights : ink).push(object);
+  return highlights.length ? [...highlights, ...ink] : [...objects];
+}
+
 const scratchSurfaces = new WeakMap<CanvasRenderingContext2D, HTMLCanvasElement>();
 function drawInkObject(ctx: CanvasRenderingContext2D, object: InkObject, ink: InkColor) {
   ctx.save();
@@ -113,7 +128,7 @@ export function renderInk(
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   applyViewport(ctx, view, size, dpr);
   const visible = visibleBounds(view, size);
-  for (const object of objects) {
+  for (const object of inkPaintOrder(objects)) {
     const bounds = inkBounds(object);
     if (!boundsIntersect(bounds, visible)) continue;
     if (!object.erasures.length) {
@@ -234,11 +249,15 @@ export function applyStrokeStyle(
   switch (stroke.tool) {
     case 'eraser':
       ctx.globalCompositeOperation = 'destination-out';
+      ctx.globalAlpha = 1;
       ctx.strokeStyle = ctx.fillStyle = '#000000';
       break;
     case 'pen':
       ctx.globalCompositeOperation = 'source-over';
-      ctx.strokeStyle = ctx.fillStyle = ink(stroke.inkRaw);
+      ctx.globalAlpha = stroke.pen === 'highlighter' ? HIGHLIGHT_ALPHA : 1;
+      // Highlights keep their bright color: contrast darkening is for readable pen lines.
+      ctx.strokeStyle = ctx.fillStyle =
+        stroke.pen === 'highlighter' ? stroke.inkRaw : ink(stroke.inkRaw);
       break;
     default:
       assertNever(stroke);

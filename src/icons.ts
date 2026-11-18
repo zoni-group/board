@@ -107,6 +107,30 @@ export const IconPen = `
   </svg>
 `;
 
+export const IconHighlighter = `
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M4 20h9" style="stroke: var(--board-pen-tip, currentColor);" stroke-width="3.2" stroke-linecap="round" opacity="0.55"/>
+    <path d="m8.2 15.8 2.1-5.2 4.2 4.2-5.2 2.1-1.1-1.1Z" style="fill: var(--board-pen-tip, currentColor);" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
+    <path d="m10.3 10.6 6-6a1.4 1.4 0 0 1 2 0l1.1 1.1a1.4 1.4 0 0 1 0 2l-6 6" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="m6.8 17.2 1.4-1.4 1.1 1.1-1.4 1.4H6.8v-1.1Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+  </svg>
+`;
+
+export const IconLaser = `
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <circle cx="16.5" cy="7.5" r="3.6" fill="#ef4444" opacity="0.25"/>
+    <circle cx="16.5" cy="7.5" r="1.8" fill="#ef4444"/>
+    <path d="m4.5 19.5 8.6-8.6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M13.9 10.1 15 9" stroke="#ef4444" stroke-width="1.6" stroke-linecap="round"/>
+  </svg>
+`;
+
+export const PenIcons = {
+  pen: IconPen,
+  highlighter: IconHighlighter,
+  laser: IconLaser,
+};
+
 export const IconEraser = `
   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <path d="m6.15 15.5 6.35-6.35a1.95 1.95 0 0 1 2.76 0l2.09 2.09a1.95 1.95 0 0 1 0 2.76l-3.78 3.78a2.55 2.55 0 0 1-1.8.74H8.7a2.4 2.4 0 0 1-1.69-.7L5.6 16.9a1.27 1.27 0 0 1 0-1.4Z" fill="currentColor" opacity="0.14"/>

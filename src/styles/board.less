@@ -1083,6 +1083,12 @@ html.has-iro .color-popup-card{
   background:transparent;
   pointer-events:none;
 }
+.board-laser-layer {
+  position:absolute;
+  inset:0;
+  background:transparent;
+  pointer-events:none;
+}
 #pad.shapes-tool-active { cursor:crosshair; }
 .shape-picker, .shape-selection-actions {
   position:fixed;
@@ -1115,6 +1121,10 @@ html.has-iro .color-popup-card{
 .object-picker button { position:relative; }
 #text::after { content:''; position:absolute; right:5px; bottom:7px; border:3px solid transparent; border-top-color:currentColor; transform:translateY(3px); }
 #text { position:relative; }
+/* Pen types: tap the active Pen again to choose Pen, Highlighter or Laser. */
+.pen-picker { grid-template-columns:1fr; width:180px; }
+#pen::after { content:''; position:absolute; right:5px; bottom:7px; border:3px solid transparent; border-top-color:currentColor; transform:translateY(3px); }
+#pen { position:relative; }
 .board-content-panel {
   position:fixed; z-index:50; display:flex; flex-direction:column;
   border:1px solid var(--border); border-radius:10px; background:var(--surface);

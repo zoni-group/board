@@ -91,6 +91,10 @@ const english = {
 
   // UI Controls
   pen: 'Pen',
+  penTypes: 'Pen types',
+  highlighter: 'Highlighter',
+  laser: 'Laser',
+  laserHint: 'Laser · The trail fades and nothing is saved',
   eraser: 'Eraser',
   undo: 'Undo',
   redo: 'Redo',
@@ -239,6 +243,10 @@ const translations = {
 
     // UI Controls
     pen: 'Lápiz',
+    penTypes: 'Tipos de lápiz',
+    highlighter: 'Resaltador',
+    laser: 'Láser',
+    laserHint: 'Láser · El trazo se desvanece y no se guarda',
     eraser: 'Borrador',
     undo: 'Deshacer',
     redo: 'Rehacer',

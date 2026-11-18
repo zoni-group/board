@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { cloneCommand, normalizeCommand, normalizeCommands } from '../../src/board/model.ts';
-import { inkBounds, resolveInk } from '../../src/board/ink.ts';
+import {
+  applyStrokeStyle,
+  HIGHLIGHT_ALPHA,
+  inkBounds,
+  inkPaintOrder,
+  resolveInk,
+} from '../../src/board/ink.ts';
 
 const pen = (id = 'a') => ({
   type: 'stroke',
@@ -113,5 +119,43 @@ describe('editable ink', () => {
     expect(deletion.ids).toEqual(['a']);
     cloneCommand(deletion).ids.push('b');
     expect(deletion.ids).toEqual(['a']);
+  });
+});
+
+describe('highlighter ink', () => {
+  const highlight = (id) => ({ ...pen(id), size: 18, inkRaw: '#f59e0b', pen: 'highlighter' });
+
+  it('survives validation and cloning, and drops unknown pen types', () => {
+    expect(normalizeCommand(highlight('h'))).toEqual(highlight('h'));
+    expect(cloneCommand(highlight('h'))).toEqual(highlight('h'));
+    expect(normalizeCommand({ ...pen('x'), pen: 'laser' })).toEqual(pen('x'));
+    expect(normalizeCommand({ ...pen('x'), pen: 'crayon' })).toEqual(pen('x'));
+  });
+
+  it('paints highlights under pen ink and keeps creation order within each group', () => {
+    const objects = resolveInk([pen('a'), highlight('h1'), pen('b'), highlight('h2')]);
+    expect(inkPaintOrder(objects).map((object) => object.id)).toEqual(['h1', 'h2', 'a', 'b']);
+  });
+
+  it('keeps moves and restyles on highlights', () => {
+    const [object] = resolveInk([
+      highlight('h'),
+      { type: 'stroke-edit', id: 'h', translate: { x: 5, y: 0 }, inkRaw: '#10b981' },
+    ]);
+    expect(object.stroke).toMatchObject({ pen: 'highlighter', inkRaw: '#10b981' });
+    expect(object.offset).toEqual({ x: 5, y: 0 });
+  });
+
+  it('is see-through, while pen ink and erasers stay opaque', () => {
+    const ctx = {};
+    applyStrokeStyle(ctx, highlight('h'), () => '#000000');
+    expect(ctx.globalAlpha).toBe(HIGHLIGHT_ALPHA);
+    expect(ctx.strokeStyle).toBe('#f59e0b'); // not darkened for contrast
+    applyStrokeStyle(ctx, pen('a'), (raw) => raw);
+    expect(ctx.globalAlpha).toBe(1);
+    ctx.globalAlpha = HIGHLIGHT_ALPHA;
+    applyStrokeStyle(ctx, erase(), (raw) => raw);
+    expect(ctx.globalAlpha).toBe(1);
+    expect(ctx.globalCompositeOperation).toBe('destination-out');
   });
 });

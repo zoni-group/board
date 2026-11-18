@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { unzipSync, strFromU8 } from 'fflate';
 import { boardAction } from '../helpers/board-menu.js';
 import { chooseObject } from '../helpers/object-picker.js';
+import { selectPen } from '../helpers/pen-picker.js';
 async function library(page) {
   return page.evaluate(async () => (await import('/src/board/storage.ts')).getBoardLibrary());
 }
@@ -21,7 +22,7 @@ async function open(page, id) {
   await expect(page.locator('.board-library-panel')).toHaveCount(0);
 }
 async function draw(page, x = 80) {
-  await page.locator('#pen').click();
+  await selectPen(page);
   await page.locator('#pad').click({ position: { x, y: 100 } });
 }
 async function download(page, action = 'exportBoard') {

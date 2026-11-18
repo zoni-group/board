@@ -13,6 +13,8 @@ import { drawContent, contentBounds } from './content.ts';
 import { renderInk } from './ink.ts';
 import { createBoardNavigation } from './navigation.ts';
 import { observeScreenLayout } from './screen-layout.ts';
+import { createPenPicker, isPenKind } from './pen-picker.ts';
+import { createLaser } from './laser.ts';
 import { registerOfflineSupport } from './offline.ts';
 import {
   applyStrokeStyle,
@@ -33,7 +35,14 @@ import {
   zoomAt,
 } from './viewport.ts';
 import type { BoardViewport } from './viewport.ts';
-import type { BoardCommand, BoardSnapshot, Point, StrokeCommand, BoardTool } from './model.ts';
+import type {
+  BoardCommand,
+  BoardSnapshot,
+  Point,
+  StrokeCommand,
+  BoardTool,
+  PenKind,
+} from './model.ts';
 import type { Language } from '../i18n.ts';
 
 import { applyButtonIcon } from '../shared/tools-menu.ts';
@@ -118,6 +127,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
 
   const textLayer = requireElement('textLayer', 'canvas');
   const shapeLayer = requireElement('shapeLayer', 'canvas');
+  const laserLayer = requireElement('laserLayer', 'canvas');
   const shapesBtn = requireElement('shapes', 'button');
   const textContext = requireCanvasContext(textLayer);
   const textBtn = requireElement('text', 'button');
@@ -150,6 +160,45 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   }
 
   let inkRaw = normalizeHex(loadText(LS_INK_RAW)) || (isDarkMode() ? '#e5e7eb' : '#111827');
+
+  // Pen types share the Pen button. Pen and Highlighter each remember their own color and
+  // size; the laser has a fixed look and leaves the controls on the pen's values.
+  type InkSlot = 'pen' | 'highlighter';
+  const LS_PEN_KIND = 'zoni_board_pen_kind';
+  const LS_SLOT_INK: Record<InkSlot, string> = {
+    pen: LS_INK_RAW,
+    highlighter: 'zoni_board_highlighter_ink_raw',
+  };
+  const LS_SLOT_SIZE: Record<InkSlot, string> = {
+    pen: 'zoni_board_pen_size',
+    highlighter: 'zoni_board_highlighter_size',
+  };
+  function storedSize(slot: InkSlot, fallback: number) {
+    const value = Number(loadText(LS_SLOT_SIZE[slot]));
+    return Number.isFinite(value) && value >= 2 && value <= 22 ? value : fallback;
+  }
+  const inkSlots: Record<InkSlot, { inkRaw: string; size: number }> = {
+    pen: { inkRaw, size: storedSize('pen', Number(sizeEl.value) || 6) },
+    highlighter: {
+      inkRaw:
+        normalizeHex(loadText(LS_SLOT_INK.highlighter)) || (isDarkMode() ? '#fbbf24' : '#f59e0b'),
+      size: storedSize('highlighter', 18),
+    },
+  };
+  const storedPenKind = loadText(LS_PEN_KIND);
+  let penKind: PenKind = isPenKind(storedPenKind) ? storedPenKind : 'pen';
+  const inkSlot = (): InkSlot => (penKind === 'highlighter' ? 'highlighter' : 'pen');
+  inkRaw = inkSlots[inkSlot()].inkRaw;
+  sizeEl.value = String(inkSlots[inkSlot()].size);
+  function rememberInk() {
+    inkSlots[inkSlot()].inkRaw = inkRaw;
+    saveText(LS_SLOT_INK[inkSlot()], inkRaw);
+  }
+  function rememberSize() {
+    const size = Math.max(2, Math.min(22, Number(sizeEl.value) || 6));
+    inkSlots[inkSlot()].size = size;
+    saveText(LS_SLOT_SIZE[inkSlot()], String(size));
+  }
 
   // Popup UI
   const colorTriggerBtn = requireElement('sizePreview', 'button');
@@ -257,7 +306,11 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     view: () => viewport ?? initialViewport(boardSize()),
     tool: () => tool,
     editing: () => textTool.isEditing() || contentTool.isEditing() || Boolean(boardMenu?.isOpen()),
-    hidden: () => shapeTool.isBusy() || shapeTool.isPickerOpen() || contentTool.isPickerOpen(),
+    hidden: () =>
+      shapeTool.isBusy() ||
+      shapeTool.isPickerOpen() ||
+      contentTool.isPickerOpen() ||
+      penPicker.isOpen(),
     redraw: redrawCanvas,
     commit(command) {
       pushHistoryCommand(command);
@@ -282,7 +335,8 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       sizePreview.style.setProperty('--board-size-preview', `${sizeEl.value}px`);
       sizeEl.setAttribute('aria-valuetext', sizeEl.value);
       inkRaw = style.inkRaw;
-      saveText(LS_INK_RAW, inkRaw);
+      rememberInk();
+      rememberSize();
       applyInk();
       setPopupFromInkRaw();
       syncIroFromInk();
@@ -305,6 +359,19 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       return queueBoardPersistence();
     },
     status: setStatus,
+  });
+  const laser = createLaser({
+    layer: laserLayer,
+    view: () => viewport ?? initialViewport(boardSize()),
+    size: boardSize,
+    dpr: () => canvasDpr,
+  });
+  let laserDrawing = false;
+  const penPicker = createPenPicker({
+    button: penBtn,
+    kind: penKind,
+    focusTarget: canvas,
+    choose: choosePenKind,
   });
   const textTool = createTextTool({
     canvas,
@@ -462,7 +529,9 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
             : tool === 'shapes'
               ? t('shapeHint')
               : tool === 'pen'
-                ? t('pen')
+                ? penKind === 'laser'
+                  ? t('laserHint')
+                  : t(penKind)
                 : tool === 'hand'
                   ? t('navigationHint')
                   : t('eraser')
@@ -801,6 +870,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     shapeTool.paint();
     textTool.paint();
     selection.paint();
+    laser.paint();
   }
 
   function ensureIroPicker() {
@@ -914,7 +984,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   }
 
   function applyInk() {
-    const applied = appliedInkFromRaw();
+    const applied = penKind === 'highlighter' ? inkRaw : appliedInkFromRaw();
     setCssInk(applied);
     syncPenButtonColor();
     syncColorUI();
@@ -925,7 +995,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     const h = normalizeHex(hex);
     if (!h) return;
     inkRaw = h;
-    saveText(LS_INK_RAW, inkRaw);
+    rememberInk();
     selection.updateStyle({ inkRaw });
     activatePenTool({ announce: false });
     applyInk();
@@ -964,6 +1034,8 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       textLayer.height = canvas.height;
       shapeLayer.width = canvas.width;
       shapeLayer.height = canvas.height;
+      laserLayer.width = canvas.width;
+      laserLayer.height = canvas.height;
       prepareHistorySurface();
     }
 
@@ -997,6 +1069,11 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     activePointerId = ev.pointerId;
     setDrawingSelectionLock(true);
     last = pos(ev);
+    if (tool === 'pen' && penKind === 'laser') {
+      laserDrawing = true;
+      laser.start(last);
+      return;
+    }
     currentStroke = {
       type: 'stroke',
       tool: 'eraser',
@@ -1012,12 +1089,17 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
         size: currentStroke.size,
         inkRaw,
         points: currentStroke.points,
+        ...(penKind === 'highlighter' ? { pen: 'highlighter' as const } : {}),
       };
     if (currentStroke.tool === 'eraser') {
       currentStroke.erasedTextIds = textTool.erase(last, last, currentStroke.size / 2);
       currentStroke.erasedShapeIds = shapeTool.erase(last, last, currentStroke.size / 2);
       drawStroke(historyCtx, currentStroke, renderedInk);
       copyHistorySurfaceToVisible();
+      return;
+    }
+    if (currentStroke.pen === 'highlighter') {
+      drawStroke(ctx, currentStroke, renderedInk);
       return;
     }
     applyCommandStyle(ctx, currentStroke);
@@ -1035,6 +1117,10 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       return;
     }
     if (activePointerId !== null && ev.pointerId !== activePointerId) return;
+    if (drawing && laserDrawing) {
+      laser.move(pos(ev));
+      return;
+    }
     if (!drawing || !currentStroke || !last) return;
     const p = pos(ev);
     currentStroke.points.push(clonePoint(p));
@@ -1053,6 +1139,13 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       ];
       drawStroke(historyCtx, currentStroke, renderedInk);
       copyHistorySurfaceToVisible();
+      last = p;
+      return;
+    }
+    if (currentStroke.pen === 'highlighter') {
+      // Repaint the whole stroke: re-stroking a growing path would darken a see-through line.
+      copyHistorySurfaceToVisible();
+      drawStroke(ctx, currentStroke, renderedInk);
       last = p;
       return;
     }
@@ -1076,6 +1169,12 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     activePointerId = null;
     setDrawingSelectionLock(false);
     last = null;
+    if (laserDrawing) {
+      laserDrawing = false;
+      if (commit) laser.end();
+      else laser.cancel();
+      return true;
+    }
 
     if (currentStroke) {
       if (commit) {
@@ -1100,8 +1199,9 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       return;
     }
     if (!drawing) return;
+    const wasLaser = laserDrawing;
     if (!finishStroke({ commit: true, ev })) return;
-    setStatus(t('draftUpdated'));
+    if (!wasLaser) setStatus(t('draftUpdated'));
   }
 
   function clear() {
@@ -1346,7 +1446,30 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     selectTool('shapes');
     if (tool === 'shapes') shapeTool.togglePicker();
   });
-  penBtn.addEventListener('click', () => selectTool('pen'));
+  penBtn.addEventListener('click', () => {
+    if (penPicker.isOpen()) {
+      penPicker.close();
+      return;
+    }
+    // First tap selects the pen; tapping the active pen opens its types, like Shapes.
+    const wasPen = tool === 'pen';
+    if (selectTool('pen') && wasPen) penPicker.toggle();
+  });
+  function choosePenKind(next: PenKind) {
+    if (!selectTool('pen')) return;
+    penKind = next;
+    saveText(LS_PEN_KIND, penKind);
+    penPicker.setKind(penKind);
+    const slot = inkSlots[inkSlot()];
+    sizeEl.value = String(slot.size);
+    sizePreview.style.setProperty('--board-size-preview', `${slot.size}px`);
+    sizeEl.setAttribute('aria-valuetext', String(slot.size));
+    inkRaw = slot.inkRaw;
+    applyInk();
+    setPopupFromInkRaw();
+    syncIroFromInk();
+    setActive();
+  }
   eraseBtn.addEventListener('click', () => selectTool('eraser'));
   handBtn.addEventListener('click', () => selectTool('hand'));
   selectBtn.addEventListener('click', () => selectTool('select'));
@@ -1388,7 +1511,10 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   redoBtn?.addEventListener('click', redo);
 
   sizeEl.addEventListener('input', syncSizePreview);
-  sizeEl.addEventListener('change', () => shapeTool.flushStyle());
+  sizeEl.addEventListener('change', () => {
+    rememberSize();
+    shapeTool.flushStyle();
+  });
   hexInput.addEventListener('change', () => shapeTool.flushStyle());
   document.addEventListener('pointerup', () => shapeTool.flushStyle());
   colorPopup?.addEventListener('keyup', () => shapeTool.flushStyle());
@@ -1419,6 +1545,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   document.addEventListener('keydown', (event) => {
     if (event.defaultPrevented || event.isComposing) return;
     if (boardMenu.handleKey(event)) return;
+    if (penPicker.handleKey(event)) return;
     if (contentTool.handleKey(event)) return;
     if (shapeTool.handleKey(event)) return;
     if (selection.handleKey(event)) return;

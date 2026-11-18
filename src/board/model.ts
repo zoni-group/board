@@ -107,9 +107,13 @@ interface StrokeData {
   inkRaw: string;
   points: Point[];
 }
+/** Pen types offered by the Pen button. Only the highlighter is stored on strokes; the laser is never saved. */
+export type PenKind = 'pen' | 'highlighter' | 'laser';
 export interface PenStrokeCommand extends StrokeData {
   tool: 'pen';
   id: string;
+  /** Absent for regular ink. */
+  pen?: 'highlighter';
 }
 export interface EraserStrokeCommand extends StrokeData {
   tool: 'eraser';
@@ -429,7 +433,10 @@ export function normalizeCommand(command: unknown): BoardCommand | null {
   } as const;
   if (command.tool !== 'eraser') {
     const id = typeof command.id === 'string' && command.id ? command.id : null;
-    return id ? { ...base, tool: 'pen', id } : null;
+    if (!id) return null;
+    return command.pen === 'highlighter'
+      ? { ...base, tool: 'pen', id, pen: 'highlighter' }
+      : { ...base, tool: 'pen', id };
   }
   return {
     ...base,

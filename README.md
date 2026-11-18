@@ -13,7 +13,7 @@ It is optimized for touch screens, with pen/eraser tools, editable rich text, pa
 
 What it does:
 
-- full-screen drawing canvas with pen and eraser tools
+- full-screen drawing canvas with pen types (pen, see-through highlighter, fading laser pointer) and an eraser
 - brush size control, preset swatches, and an `iro` color picker
 - editable, movable text blocks with selected-word formatting
 - images, formatted tables, and video cards through the Text button's **Add object** picker
@@ -113,6 +113,26 @@ New command types must be handled explicitly in cloning and rendering. Keep draw
 in board coordinates (CSS pixels at 100% zoom): zoom transforms input and rendering rather
 than rewrite saved points. TypeScript dependencies are development-only; drawing and storage
 remain local to the browser.
+
+## Pen Types
+
+The Pen button doubles as the pen-type menu, so the toolbar keeps its size. The first tap selects
+the pen with its last type. Tapping the active Pen again opens **Pen**, **Highlighter**, and
+**Laser**. Escape or a tap outside closes the menu. The button shows the current type, and the
+choice is remembered on this device.
+
+- **Pen:** regular ink, unchanged.
+- **Highlighter:** a see-through marker for text, images, tables, and worksheets. Highlights
+  always render under pen ink and text, so marked content stays readable. They keep their bright
+  color instead of the pen's contrast adjustment. Pen and Highlighter each remember their own
+  color and size (the highlighter starts amber at 18). Highlights select, move, restyle, erase,
+  undo, autosave, and export like any other stroke. On a stroke, only `pen: "highlighter"` is
+  stored. Strokes without it are regular ink, so existing boards and `.zoniboard` files need no
+  migration.
+- **Laser:** a glowing red trail for pointing during explanations. Its width is fixed on screen.
+  The trail fades about one second after lifting, and older parts disappear while pointing. It
+  is drawn on its own overlay and never creates a board command. Undo, autosave, and PNG export
+  never see it. A second finger cancels it, like any unfinished stroke.
 
 ## Selecting and Editing Objects
 
