@@ -92,6 +92,7 @@ Local development runs at:
 - `npm run test:unit`: runs unit tests under `test/unit`
 - `npm run test:smoke`: runs smoke tests under `test/smoke`
 - `npm run test:e2e`: runs desktop Chromium, desktop WebKit, and mobile WebKit tests
+- `npm run test:e2e:offline`: builds, then checks offline loading and editing in Chromium
 
 For browser tests, first run `npx playwright install --with-deps chromium webkit`.
 
@@ -233,6 +234,21 @@ Selection outlines, handles, and previews are excluded from exports.
 Shapes use the existing Canvas renderer and strict TypeScript command model, with no new runtime
 dependencies. Their viewport-sized transparent layer avoids allocating a canvas as large as the
 workspace. Grouping, rotation, fills, and connected diagram editing are outside this tool's scope.
+
+## Offline Use
+
+After one online visit, the board opens and every tool works without a connection. This
+includes the lazily loaded text, table and board-file editors. A build step
+(`build/offline-plugin.js`) emits `/sw.js` from `src/offline/service-worker.js` and precaches
+every built file plus the app icons. Boards and media were already stored locally.
+
+- Updates are silent: a new deploy installs in the background and is used on the next launch
+  or reload. The page is never reloaded mid-lesson. The previous version's cache is kept, so an
+  older open page can still load its own chunks.
+- Hosted YouTube/Vimeo videos still need a connection; local video files work offline.
+- The service worker is only registered in production builds, never in `npm run dev`.
+- Test locally with `npm run build && npm run preview`, or run `npm run test:e2e:offline`.
+- To remove it from production, deploy a `sw.js` that calls `self.registration.unregister()`.
 
 ## Moving and Zooming
 

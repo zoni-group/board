@@ -53,6 +53,12 @@ export default [
     },
   },
   {
+    files: ['src/offline/**/*.js'],
+    languageOptions: {
+      globals: globals.serviceworker,
+    },
+  },
+  {
     files: ['test/**/*.{js,mjs}', 'vitest.config.js'],
     languageOptions: {
       globals: vitestGlobals,

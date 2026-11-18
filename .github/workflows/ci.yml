@@ -35,6 +35,9 @@ jobs:
       - name: Browser tests
         run: npm run test:e2e
 
+      - name: Offline browser tests
+        run: npx playwright test -c playwright.offline.config.js
+
       - name: Browser traces
         if: failure()
         uses: actions/upload-artifact@v4

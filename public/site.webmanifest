@@ -1,6 +1,9 @@
 {
+  "id": "/",
   "name": "ZONI® Board",
   "short_name": "ZONI Board",
+  "start_url": "/",
+  "scope": "/",
   "icons": [
     {
       "src": "/web-app-manifest-192x192.png",

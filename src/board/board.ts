@@ -13,6 +13,7 @@ import { drawContent, contentBounds } from './content.ts';
 import { renderInk } from './ink.ts';
 import { createBoardNavigation } from './navigation.ts';
 import { observeScreenLayout } from './screen-layout.ts';
+import { registerOfflineSupport } from './offline.ts';
 import {
   applyStrokeStyle,
   createBoardScene,
@@ -1469,6 +1470,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
 
   screenLayout.update();
   setStatus(t('navigationHint'));
+  registerOfflineSupport();
   void initializeLibrary(t('boardDefaultName'))
     .then(activateBoard)
     .catch(async () => {
