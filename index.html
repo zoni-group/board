@@ -7,6 +7,10 @@
       var l = navigator.language && navigator.language.startsWith('es') ? 'es' : 'en';
       document.documentElement.lang = l;
       window.__lang = l;
+      try {
+        var theme = localStorage.getItem('zoni_board_theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+      } catch (e) {}
     })();
   </script>
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
@@ -365,16 +369,21 @@
       </div>
     </main>
     <div id="boardMenu" class="board-menu" role="dialog" aria-label="Boards" data-i18n-aria="boards" hidden>
-      <strong data-board-name></strong>
-      <button id="newBoard" type="button" data-i18n="newBoard">New board</button>
-      <button id="openBoards" type="button" data-i18n="openBoards">Open boards…</button>
+      <div class="board-menu-header">
+        <small data-i18n="boardLabel">Board</small>
+        <strong data-board-name></strong>
+      </div>
+      <button id="newBoard" type="button" class="menu-item"><span class="btn-icon" aria-hidden="true"></span><span data-i18n="newBoard">New board</span></button>
+      <button id="openBoards" type="button" class="menu-item"><span class="btn-icon" aria-hidden="true"></span><span data-i18n="openBoards">Open boards…</span></button>
       <hr />
-      <button id="exportBoard" type="button" data-i18n="exportBoard">Export board</button>
-      <button id="exportAllBoards" type="button" data-i18n="exportAllBoards">Export all boards</button>
-      <button id="importBoards" type="button" data-i18n="importBoards">Import boards…</button>
-      <button id="save" type="button" data-i18n="savePng">Save PNG</button>
+      <button id="exportBoard" type="button" class="menu-item"><span class="btn-icon" aria-hidden="true"></span><span data-i18n="exportBoard">Export board</span></button>
+      <button id="exportAllBoards" type="button" class="menu-item"><span class="btn-icon" aria-hidden="true"></span><span data-i18n="exportAllBoards">Export all boards</span></button>
+      <button id="importBoards" type="button" class="menu-item"><span class="btn-icon" aria-hidden="true"></span><span data-i18n="importBoards">Import boards…</span></button>
+      <button id="save" type="button" class="menu-item"><span class="btn-icon" aria-hidden="true"></span><span data-i18n="savePng">Save PNG</span></button>
       <hr />
-      <button id="clear" type="button" class="destructive" data-i18n="clearDrawing">Clear drawing</button>
+      <button id="boardSettings" type="button" class="menu-item"><span class="btn-icon" aria-hidden="true"></span><span data-i18n="settingsMenu">Settings…</span></button>
+      <hr />
+      <button id="clear" type="button" class="menu-item destructive"><span class="btn-icon" aria-hidden="true"></span><span data-i18n="clearDrawing">Clear drawing</span></button>
     </div>
     <div id="colorPopup" class="color-popup" hidden>
       <div class="color-popup-card">

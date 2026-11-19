@@ -250,3 +250,39 @@ export const IconFit = `
     <rect x="8" y="8" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.5"/>
   </svg>
 `;
+
+// Board menu
+const menuIcon = (body: string) =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+export const IconPlus = menuIcon('<path d="M12 5v14M5 12h14"/>');
+export const IconFolder = menuIcon(
+  '<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z"/>'
+);
+export const IconExport = menuIcon(
+  '<path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/>'
+);
+export const IconExportAll = menuIcon(
+  '<path d="m12 3.5 8.5 4.5-8.5 4.5L3.5 8Z"/><path d="m3.5 12 8.5 4.5 8.5-4.5M3.5 16l8.5 4.5 8.5-4.5"/>'
+);
+export const IconImport = menuIcon(
+  '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/>'
+);
+export const IconRename = menuIcon(
+  '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16Z"/><path d="m13.5 6.5 4 4"/>'
+);
+
+// Page backgrounds
+const paperIcon = (body: string) =>
+  `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="2.5" stroke="currentColor" stroke-width="1.6"/>${body}</svg>`;
+export const PatternIcons = {
+  blank: paperIcon(''),
+  grid: paperIcon(
+    '<path d="M9.2 4v16M14.8 4v16M4 9.2h16M4 14.8h16" stroke="currentColor" stroke-width="1.1" opacity=".75"/>'
+  ),
+  lined: paperIcon(
+    '<path d="M7 8.5h10M7 12h10M7 15.5h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity=".75"/>'
+  ),
+  dotted: paperIcon(
+    '<g fill="currentColor" opacity=".8"><circle cx="8.5" cy="8.5" r="1"/><circle cx="12" cy="8.5" r="1"/><circle cx="15.5" cy="8.5" r="1"/><circle cx="8.5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="15.5" cy="12" r="1"/><circle cx="8.5" cy="15.5" r="1"/><circle cx="12" cy="15.5" r="1"/><circle cx="15.5" cy="15.5" r="1"/></g>'
+  ),
+};

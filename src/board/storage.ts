@@ -4,6 +4,8 @@ import { normalizeViewport } from './viewport.ts';
 import type { BoardViewport } from './viewport.ts';
 import { normalizeTextDraft } from './text-draft.ts';
 import type { TextDraft } from './text-draft.ts';
+import { DEFAULT_BACKGROUND, normalizeBackground } from './background.ts';
+import type { BoardBackground } from './background.ts';
 
 export const LIBRARY_DB_NAME = 'zoni-board-library';
 export const LIBRARY_VERSION = 1;
@@ -21,6 +23,8 @@ export interface BoardState extends BoardSnapshot {
 }
 export interface BoardDocument extends BoardSummary, BoardState {
   version: 1;
+  /** Page pattern and color. Optional in stored data; normalized to the default. */
+  background: BoardBackground;
 }
 export interface BoardLibrary {
   version: 1;
@@ -115,6 +119,7 @@ export function normalizeBoardDocument(value: unknown): BoardDocument | null {
     ...snapshot,
     viewport,
     draft,
+    background: normalizeBackground(value.background),
   };
 }
 function summary(board: BoardDocument): BoardSummary {
@@ -156,6 +161,7 @@ export function emptyBoard(name: string): BoardDocument {
     redoCommands: [],
     viewport: null,
     draft: null,
+    background: { ...DEFAULT_BACKGROUND },
   };
 }
 export function uniqueBoardName(name: string, boards: readonly BoardSummary[]): string {
@@ -321,6 +327,20 @@ export async function renameBoard(id: BoardId, name: string): Promise<BoardSumma
       'library'
     );
     return summary(next);
+  });
+}
+/** Changes a board's page background. Like a rename, it does not bump the drawing revision. */
+export async function updateBoardBackground(
+  id: BoardId,
+  background: BoardBackground
+): Promise<BoardBackground> {
+  const next = normalizeBackground(background);
+  return transaction(['boards'], 'readwrite', async (tx) => {
+    const store = tx.objectStore('boards');
+    const board = normalizeBoardDocument(await read(store.get(id)));
+    if (!board) throw new BoardStorageError('boardDeleted');
+    store.put({ ...board, background: next });
+    return next;
   });
 }
 export async function saveBoardDrawing(

@@ -1,4 +1,5 @@
 import { getLang, t } from '../i18n.ts';
+import { isDarkTheme, onThemeChange } from './theme.ts';
 import { IconImage, IconTable, IconText, IconVideo } from '../icons.ts';
 import { applyButtonIcon } from '../shared/tools-menu.ts';
 import {
@@ -108,7 +109,7 @@ export function createContentTool(options: ContentToolOptions) {
     host
       ?.querySelectorAll<HTMLElement>('[data-content-label]')
       .forEach((element) => (element.textContent = t(element.dataset.contentLabel!)));
-    tableSession?.configure(getLang(), window.matchMedia('(prefers-color-scheme: dark)').matches);
+    tableSession?.configure(getLang(), isDarkTheme());
   }
   function position() {
     if (!picker.hidden) {
@@ -336,7 +337,7 @@ export function createContentTool(options: ContentToolOptions) {
         cloneContentObject(object),
         options.ink(),
         getLang(),
-        window.matchMedia('(prefers-color-scheme: dark)').matches,
+        isDarkTheme(),
         () => {
           options.historyChanged();
           position();
@@ -521,7 +522,7 @@ export function createContentTool(options: ContentToolOptions) {
     labels();
     position();
   });
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', labels);
+  onThemeChange(labels);
   window.addEventListener('pagehide', () => {
     closePanel();
     closePicker();

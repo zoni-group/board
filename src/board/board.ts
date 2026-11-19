@@ -1,6 +1,11 @@
 import '../styles/board.less';
 
-import { initializeLibrary, createBoardSession, emptyBoard } from './storage.ts';
+import {
+  initializeLibrary,
+  createBoardSession,
+  emptyBoard,
+  updateBoardBackground,
+} from './storage.ts';
 import type { BoardDocument, BoardSession } from './storage.ts';
 import { createBoardMenu, boardFileName } from './board-menu.ts';
 import { cloneCommand, clonePoint } from './model.ts';
@@ -48,6 +53,16 @@ import type { Language } from '../i18n.ts';
 
 import { applyButtonIcon } from '../shared/tools-menu.ts';
 import { loadText, saveText } from '../shared/storage.ts';
+import { contrastRatio, hexToRgb, mixHex, normalizeHex, rgbToHex } from './color.ts';
+import {
+  DEFAULT_BACKGROUND,
+  isDarkColor,
+  paintBackgroundPattern,
+  resolveCanvasColor,
+} from './background.ts';
+import type { BoardBackground } from './background.ts';
+import { applyTheme, onThemeChange, storedTheme } from './theme.ts';
+import type { ThemeChoice } from './theme.ts';
 import iro from '@jaames/iro';
 import { t, applyTranslations, toggleLang, getLang } from '../i18n.ts';
 import {
@@ -63,13 +78,15 @@ import {
   IconBoard,
   PenIcons,
   SelectIcons,
+  IconPlus,
+  IconFolder,
+  IconExport,
+  IconExportAll,
+  IconImport,
+  IconImage,
+  IconSettings,
+  IconTrash,
 } from '../icons.ts';
-
-interface Rgb {
-  r: number;
-  g: number;
-  b: number;
-}
 
 interface ToolOptions {
   announce?: boolean;
@@ -89,8 +106,9 @@ function requireCanvasContext(canvas: HTMLCanvasElement): CanvasRenderingContext
   if (!context) throw new Error('Board canvas context is unavailable.');
   return context;
 }
-// Apply translations immediately
+// Apply translations and the chosen theme immediately
 applyTranslations();
+applyTheme(storedTheme());
 
 const langToggleButtons = Array.from(document.querySelectorAll('[data-lang-toggle], #langToggle'));
 
@@ -120,6 +138,17 @@ applyButtonIcon(requireElement('boards', 'button'), IconBoard);
 applyButtonIcon(requireElement('hand', 'button'), IconHand);
 applyButtonIcon(requireElement('select', 'button'), IconSelect);
 applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
+for (const [id, icon] of [
+  ['newBoard', IconPlus],
+  ['openBoards', IconFolder],
+  ['exportBoard', IconExport],
+  ['exportAllBoards', IconExportAll],
+  ['importBoards', IconImport],
+  ['save', IconImage],
+  ['boardSettings', IconSettings],
+  ['clear', IconTrash],
+] as const)
+  applyButtonIcon(document.getElementById(id), icon);
 
 (function () {
   const canvas = requireElement('pad', 'canvas');
@@ -158,8 +187,11 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   const LS_INK_RAW = 'vatio_board_ink_raw';
   let saveBusy = false;
 
+  // Page background of the open board; ink defaults and presets follow how dark the paper is.
+  let boardBackground: BoardBackground = { ...DEFAULT_BACKGROUND };
+  const canvasFrame = canvas.closest<HTMLElement>('.canvas-frame');
   function isDarkMode() {
-    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return isDarkColor(currentCanvasBg());
   }
 
   let inkRaw = normalizeHex(loadText(LS_INK_RAW)) || (isDarkMode() ? '#e5e7eb' : '#111827');
@@ -532,7 +564,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }
   function currentCanvasBg() {
-    return cssVar('--canvas-bg') || '#ffffff';
+    return resolveCanvasColor(boardBackground, cssVar('--canvas-bg'));
   }
 
   function setStatus(s: string) {
@@ -666,6 +698,10 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       if (boardSession?.record.id === board.id) storageFailure(error);
     });
     viewport = board.viewport ?? initialViewport(boardSize());
+    boardBackground = { ...board.background };
+    canvasFrame?.style.setProperty('--board-canvas-bg', currentCanvasBg());
+    renderSwatches();
+    applyInk();
     scene = null;
     sceneLength = -1;
     sceneLast = undefined;
@@ -716,6 +752,12 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       return true;
     },
     status: setStatus,
+    background: () => ({ ...boardBackground }),
+    setBackground(next) {
+      void setBackground(next);
+    },
+    theme: storedTheme,
+    setTheme: (choice) => setTheme(choice),
   });
 
   function pushHistoryCommand(command: BoardCommand, { clearRedo = true } = {}) {
@@ -725,75 +767,6 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
       redoHistory.length = 0;
     }
     syncHistoryButtons();
-  }
-
-  // ---- Color utilities (contrast-safe ink) ----
-  function clamp01(x: number) {
-    return Math.max(0, Math.min(1, x));
-  }
-
-  function normalizeHex(hex: unknown): string | null {
-    if (!hex) return null;
-    let h = String(hex).trim();
-    if (h[0] !== '#') h = '#' + h;
-    // #rgb -> #rrggbb
-    if (/^#([0-9a-fA-F]{3})$/.test(h)) {
-      const m = h.slice(1);
-      h =
-        '#' +
-        m
-          .split('')
-          .map((ch) => ch + ch)
-          .join('');
-    }
-    if (!/^#([0-9a-fA-F]{6})$/.test(h)) return null;
-    return h.toLowerCase();
-  }
-
-  function hexToRgb(hex: string): Rgb | null {
-    const h = normalizeHex(hex);
-    if (!h) return null;
-    const n = parseInt(h.slice(1), 16);
-    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
-  }
-
-  function rgbToHex({ r, g, b }: Rgb): string {
-    const to = (v: number) => v.toString(16).padStart(2, '0');
-    return '#' + to(r) + to(g) + to(b);
-  }
-
-  function srgbToLin(c: number) {
-    const v = c / 255;
-    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-  }
-
-  function relLuminance(rgb: Rgb) {
-    const R = srgbToLin(rgb.r),
-      G = srgbToLin(rgb.g),
-      B = srgbToLin(rgb.b);
-    return 0.2126 * R + 0.7152 * G + 0.0722 * B;
-  }
-
-  function contrastRatio(hexA: string, hexB: string) {
-    const a = hexToRgb(hexA),
-      b = hexToRgb(hexB);
-    if (!a || !b) return 1;
-    const L1 = relLuminance(a);
-    const L2 = relLuminance(b);
-    const hi = Math.max(L1, L2);
-    const lo = Math.min(L1, L2);
-    return (hi + 0.05) / (lo + 0.05);
-  }
-
-  function mixHex(hexA: string, hexB: string, t: number) {
-    const a = hexToRgb(hexA),
-      b = hexToRgb(hexB);
-    if (!a || !b) return hexA;
-    const tt = clamp01(t);
-    const r = Math.round(a.r + (b.r - a.r) * tt);
-    const g = Math.round(a.g + (b.g - a.g) * tt);
-    const bb = Math.round(a.b + (b.b - a.b) * tt);
-    return rgbToHex({ r, g, b: bb });
   }
 
   // Make sure ink stays readable on current canvas background.
@@ -860,7 +833,10 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     ctx.fillStyle = renderBackground;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.save();
-    if (viewport) applyViewport(ctx, viewport, boardSize(), canvasDpr);
+    if (viewport) {
+      applyViewport(ctx, viewport, boardSize(), canvasDpr);
+      paintBackgroundPattern(ctx, boardBackground, viewport, boardSize(), renderBackground);
+    }
     if (viewport)
       for (const object of getScene().content) {
         const shown = selection.displayContent(object);
@@ -1375,7 +1351,8 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
         boardSize(),
         currentCanvasBg(),
         renderedInk,
-        exportAssets
+        exportAssets,
+        boardBackground
       );
       return {
         fileBlob: await canvasToPngBlob(exported.canvas),
@@ -1580,16 +1557,32 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     void downloadDrawingAsPng();
   });
 
-  const mq = window.matchMedia('(prefers-color-scheme: dark)');
-  if (mq && mq.addEventListener) {
-    mq.addEventListener('change', () => {
-      // recompute presets + apply ink contrast for new background
-      renderSwatches();
-      applyInk();
-      redrawCanvas();
-      textTool.reflow();
-      setStatus(t('themeUpdated'));
-    });
+  // Theme or paper changes: recompute presets, ink contrast and the canvas.
+  function refreshAppearance() {
+    canvasFrame?.style.setProperty('--board-canvas-bg', currentCanvasBg());
+    renderSwatches();
+    applyInk();
+    redrawCanvas();
+    textTool.reflow();
+  }
+  onThemeChange(() => {
+    refreshAppearance();
+    setStatus(t('themeUpdated'));
+  });
+  async function setBackground(next: BoardBackground) {
+    const board = boardSession?.record;
+    boardBackground = { ...next };
+    if (board) board.background = { ...next };
+    refreshAppearance();
+    if (!board || !boardReady) return;
+    try {
+      await updateBoardBackground(board.id, next);
+    } catch (error) {
+      storageFailure(error);
+    }
+  }
+  function setTheme(choice: ThemeChoice) {
+    applyTheme(choice, { persist: true });
   }
 
   const screenLayout = observeScreenLayout(app, resize);

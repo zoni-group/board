@@ -14,6 +14,7 @@ import {
   getAssetRecord,
   loadBoardDrawing,
   saveBoardDrawing,
+  updateBoardBackground,
 } from '../../src/board/storage.ts';
 let first;
 beforeEach(async () => {
@@ -166,6 +167,16 @@ describe('current portable board format', () => {
     await importBoards(blob);
     expect((await getBoardLibrary()).boards).toHaveLength(6);
     expect((await loadBoardDrawing(a.id)).commands).toEqual(a.commands);
+  });
+  it("carries each board's page background through export and import", async () => {
+    const lesson = await createBoard('Graph paper');
+    const grid = { pattern: 'grid', spacing: 'large', color: 'green' };
+    await updateBoardBackground(lesson.id, grid);
+    const board = await loadBoardDrawing(lesson.id);
+    const prepared = await readBoardArchive(await exportBoards([board], board.id));
+    expect(prepared.boards[0].background).toEqual(grid);
+    const copy = await importBoards(await exportBoards([board], board.id));
+    expect((await loadBoardDrawing(copy.id)).background).toEqual(grid);
   });
   it('rejects corruption, missing entries, unsupported versions, and truncated archives before publication', async () => {
     const board = await fixture(),

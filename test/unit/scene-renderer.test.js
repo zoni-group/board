@@ -64,4 +64,20 @@ describe('shared scene rendering', () => {
       out.drawImage.mock.invocationCallOrder[0]
     );
   });
+  it("paints the board's page pattern into PNG exports, under the drawing", () => {
+    const ctx = document.createElement('canvas').getContext('2d');
+    const scene = createBoardScene([stroke(50)], ctx);
+    const plain = createDrawingCanvas(scene, size, '#ffffff', (ink) => ink).canvas.getContext('2d');
+    expect(plain.stroke).not.toHaveBeenCalled();
+    const { canvas } = createDrawingCanvas(scene, size, '#ffffff', (ink) => ink, undefined, {
+      pattern: 'lined',
+      spacing: 'small',
+      color: 'white',
+    });
+    const out = canvas.getContext('2d');
+    expect(out.stroke).toHaveBeenCalledTimes(1);
+    expect(out.stroke.mock.invocationCallOrder[0]).toBeLessThan(
+      out.drawImage.mock.invocationCallOrder[0]
+    );
+  });
 });
