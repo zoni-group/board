@@ -16,6 +16,8 @@ import {
   importBoardRecords,
   emptyBoard,
   closeLibraryDatabase,
+  updateBoardBackground,
+  normalizeBoardDocument,
 } from '../../src/board/storage.ts';
 import { textObject } from '../helpers/text-fixture.js';
 let first;
@@ -90,6 +92,33 @@ describe('fresh board library', () => {
     await setActiveBoard(first.id);
     expect(await initializeLibrary()).toEqual({ ...saved, name: 'Lesson A' });
     expect((await loadBoardDrawing(second.id)).commands).toEqual([]);
+  });
+  it('keeps a page background per board without advancing the drawing revision', async () => {
+    expect(first.background).toEqual({ pattern: 'blank', spacing: 'medium', color: 'auto' });
+    const grid = { pattern: 'grid', spacing: 'small', color: 'cream' };
+    expect(await updateBoardBackground(first.id, grid)).toEqual(grid);
+    const loaded = await loadBoardDrawing(first.id);
+    expect(loaded.background).toEqual(grid);
+    expect(loaded.revision).toBe(first.revision);
+    // A drawing save from an open session keeps the stored background.
+    const saved = await saveBoardDrawing(first.id, state({ commands: [stroke] }), 0);
+    expect(saved.background).toEqual(grid);
+    const second = await createBoard();
+    expect(second.background.pattern).toBe('blank');
+    await expect(updateBoardBackground('missing', grid)).rejects.toThrow('boardDeleted');
+  });
+  it('loads boards stored without a background, or with an invalid one, using the default', () => {
+    const { background, ...stored } = emptyBoard('Old');
+    expect(background.pattern).toBe('blank');
+    expect(normalizeBoardDocument(stored).background).toEqual({
+      pattern: 'blank',
+      spacing: 'medium',
+      color: 'auto',
+    });
+    expect(
+      normalizeBoardDocument({ ...stored, background: { pattern: 'stripes', color: 'black' } })
+        .background
+    ).toEqual({ pattern: 'blank', spacing: 'medium', color: 'black' });
   });
   it('serializes concurrent catalog updates rather than losing newly created boards', async () => {
     const boards = await Promise.all([createBoard(), createBoard(), createBoard()]);

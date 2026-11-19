@@ -19,6 +19,8 @@ What it does:
 - images, formatted tables, and video cards through the Text button's **Add object** picker
 - undo, redo, clear, and PNG download
 - multiple named boards with local autosave in IndexedDB and portable `.zoniboard` backups
+- per-board paper (blank, grid, lined, dotted; paper colors), a Light/Dark/System theme choice, and
+  storage details in **Settings**
 - English/Spanish language toggle
 
 ## Stack
@@ -355,6 +357,23 @@ seven buttons; navigation remains separate and visible.
 - **Save PNG** exports the current board as an image named after the board. Editable exports keep
   objects and history; PNGs are flattened images.
 
+## Settings
+
+**Boards → Settings…** opens one panel; it adds no toolbar buttons. Every change applies at once.
+
+- **Board:** rename the open board (Enter, leaving the field, or Done saves it).
+- **Page:** pattern (**Blank**, **Grid**, **Lined**, **Dotted**), spacing (**Small**, **Medium**,
+  **Large**: 16, 32, 64 board units) and paper color (**Auto** follows the theme; **White**,
+  **Cream**, **Green chalkboard**, **Blackboard**). The paper is saved per board, travels in
+  `.zoniboard` exports, pans and zooms with the drawing, and is included in **Save PNG**. It is a
+  board setting, not an Undo step. When zoomed out, lines thin out so they stay at least 8 px apart.
+  On dark paper the ink presets switch to their light variants; ink contrast adapts as before.
+- **Appearance:** **System**, **Light** or **Dark** for the whole app, remembered on this device.
+- **Storage:** how much browser storage the app uses (`navigator.storage.estimate()`), the number
+  of boards, and **Keep boards on this device**, which asks the browser not to clear the boards when
+  space runs low (`navigator.storage.persist()`). Browsers decide whether to grant it; exporting
+  remains the reliable backup.
+
 Transfer a `.zoniboard` file to another computer/browser and choose Import boards there. Exports
 are snapshots: later edits continue saving in the browser, so export again to update the file.
 Import/export shows progress and can be cancelled. Invalid files, missing media, unsupported
@@ -370,15 +389,15 @@ Large libraries can be exported one board at a time.
 ## Persistence Model
 
 - One database, `zoni-board-library` version 1, has `boards`, `assets`, and `meta` stores.
-- Each board document stores its metadata, drawing/redo commands, viewport, and recoverable text
-  draft. The catalog lists board summaries without loading complete drawings.
+- Each board document stores its metadata, drawing/redo commands, viewport, recoverable text
+  draft, and page background. A missing or invalid background loads as blank paper with Auto color. The catalog lists board summaries without loading complete drawings.
 - Atomic transactions update board documents and catalog entries together; a failed transaction
   preserves the last successful save. Imports publish boards and assets in one transaction.
 - Each board has its own save queue and revision; stale or deleted-board writes are rejected.
 - Media ownership makes deleting a board independent of other boards. Imported copies get their
   own media identities. Unreferenced media retained by an editing session is removed with its board.
 - IndexedDB is required for durable board storage. `localStorage` holds only shared UI preferences
-  such as language and ink color; there is no drawing fallback or compatibility layer.
+  such as language, theme, and ink color; there is no drawing fallback or compatibility layer.
 - Prototype single-board databases and keys are ignored. Only the current library/archive format
   is supported; older or newer format versions are not converted.
 

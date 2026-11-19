@@ -1,4 +1,5 @@
 import { t, getLang } from '../i18n.ts';
+import { isDarkTheme, onThemeChange } from './theme.ts';
 import { cloneTextObject, isEmptyText } from './model.ts';
 import type { BoardCommand, Point, TextObject } from './model.ts';
 import {
@@ -79,7 +80,7 @@ export function createTextTool(options: TextToolOptions) {
   function labels() {
     done.textContent = t('doneText');
     cancel.textContent = t('cancelText');
-    session?.configure(getLang(), window.matchMedia('(prefers-color-scheme: dark)').matches);
+    session?.configure(getLang(), isDarkTheme());
   }
   labels();
 
@@ -263,7 +264,7 @@ export function createTextTool(options: TextToolOptions) {
         object,
         options.ink(),
         getLang(),
-        window.matchMedia('(prefers-color-scheme: dark)').matches,
+        isDarkTheme(),
         changed
       );
       if (ticket !== generation) {
@@ -386,7 +387,7 @@ export function createTextTool(options: TextToolOptions) {
   );
   window.visualViewport?.addEventListener('resize', positionEditor);
   window.visualViewport?.addEventListener('scroll', positionEditor);
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', labels);
+  onThemeChange(labels);
 
   return {
     paint,

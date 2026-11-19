@@ -66,9 +66,11 @@ describe('index.html smoke', () => {
     expect(document.querySelector('#undo .btn-icon svg')).toBeTruthy();
     expect(document.getElementById('redo').getAttribute('aria-label')).toBe('Redo');
     expect(document.querySelector('#redo .btn-icon svg')).toBeTruthy();
-    expect(document.getElementById('clear').textContent).toBe('Clear drawing');
+    expect(document.getElementById('clear').textContent.trim()).toBe('Clear drawing');
+    expect(document.querySelector('#clear .btn-icon svg')).toBeTruthy();
     expect(document.querySelector('#boards .btn-icon svg')).toBeTruthy();
-    expect(document.getElementById('save').textContent).toBe('Save PNG');
+    expect(document.getElementById('save').textContent.trim()).toBe('Save PNG');
+    expect(document.getElementById('boardSettings').textContent.trim()).toBe('Settings…');
     expect(document.getElementById('boardMenu').hidden).toBe(true);
     expect(document.getElementById('undo').disabled).toBe(true);
     expect(document.getElementById('redo').disabled).toBe(true);

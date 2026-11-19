@@ -1,4 +1,8 @@
 import { t } from '../i18n.ts';
+import { IconRename, IconTrash } from '../icons.ts';
+import type { BoardBackground } from './background.ts';
+import { renderSettings } from './settings-panel.ts';
+import type { ThemeChoice } from './theme.ts';
 import { constrainPopup, panelArea } from './screen-layout.ts';
 import {
   createBoard,
@@ -20,6 +24,10 @@ interface Options {
   renamed(name: string): void;
   beforeMenu(): boolean;
   status(message: string): void;
+  background(): BoardBackground;
+  setBackground(next: BoardBackground): void;
+  theme(): ThemeChoice;
+  setTheme(choice: ThemeChoice): void;
 }
 export function boardFileName(name: string, extension: string): string {
   return `${
@@ -33,6 +41,7 @@ export function boardFileName(name: string, extension: string): string {
 export function createBoardMenu(options: Options) {
   const { button, menu } = options;
   let panel: HTMLElement | null = null,
+    beforeDismiss: (() => Promise<void>) | null = null,
     working = false,
     controller: AbortController | null = null;
   let filesModule: Promise<typeof import('./board-files.ts')> | undefined;
@@ -61,7 +70,7 @@ export function createBoardMenu(options: Options) {
     }
     if (panel) {
       const a = panelArea(),
-        width = Math.min(620, a.width);
+        width = Math.min(panel.classList.contains('board-settings-panel') ? 460 : 620, a.width);
       panel.style.width = `${width}px`;
       panel.style.maxHeight = `${a.height}px`;
       panel.style.left = `${a.left + (a.width - width) / 2}px`;
@@ -73,6 +82,8 @@ export function createBoardMenu(options: Options) {
       controller?.abort();
       return;
     }
+    void beforeDismiss?.();
+    beforeDismiss = null;
     panel?.remove();
     panel = null;
     closeMenu();
@@ -86,12 +97,26 @@ export function createBoardMenu(options: Options) {
     b.addEventListener('click', run);
     return b;
   }
+  /** A small icon button named by its tooltip and accessible label. */
+  function iconControl(key: string, icon: string, run: () => void) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'icon-control';
+    b.dataset.i18nAria = key;
+    b.setAttribute('aria-label', t(key));
+    b.title = t(key);
+    b.innerHTML = `<span class="btn-icon" aria-hidden="true">${icon}</span>`;
+    b.addEventListener('click', run);
+    return b;
+  }
   function createPanel(key: string) {
+    beforeDismiss = null;
     panel?.remove();
     closeMenu();
     panel = document.createElement('section');
     panel.className = 'board-content-panel board-library-panel';
     panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
     panel.setAttribute('aria-labelledby', 'boardPanelTitle');
     const heading = document.createElement('h2');
     heading.id = 'boardPanelTitle';
@@ -151,6 +176,7 @@ export function createBoardMenu(options: Options) {
     });
   }
   function dismissPanel() {
+    beforeDismiss = null;
     panel?.remove();
     panel = null;
     closeMenu();
@@ -223,15 +249,23 @@ export function createBoardMenu(options: Options) {
         if (board.id === options.current().id) {
           open.setAttribute('aria-current', 'true');
           open.title = `${board.name} · ${t('currentBoard')}`;
+          row.classList.add('is-current');
         }
         const info = document.createElement('small');
         info.textContent = new Date(board.updatedAtMs).toLocaleString(
           document.documentElement.lang
         );
+        if (board.id === options.current().id) {
+          const badge = document.createElement('span');
+          badge.className = 'board-list-badge';
+          badge.dataset.i18n = 'currentBadge';
+          badge.textContent = t('currentBadge');
+          info.append(' · ', badge);
+        }
         const name = document.createElement('div');
         name.className = 'board-list-name';
         name.append(open, info);
-        const rename = control('renameBoard', () => {
+        const rename = iconControl('renameBoard', IconRename, () => {
           if (working || row.querySelector('input')) return;
           const field = document.createElement('input');
           field.type = 'text';
@@ -280,8 +314,8 @@ export function createBoardMenu(options: Options) {
           field.select();
           position();
         });
-        const remove = control('deleteBoard', () => confirmDelete(board));
-        remove.className = 'destructive';
+        const remove = iconControl('deleteBoard', IconTrash, () => confirmDelete(board));
+        remove.classList.add('destructive');
         row.append(name, rename, remove);
         list.append(row);
       }
@@ -294,6 +328,34 @@ export function createBoardMenu(options: Options) {
         position();
       }
     }
+  }
+  async function renameCurrent(value: string) {
+    try {
+      const updated = await renameBoard(options.current().id, value);
+      options.renamed(updated.name);
+      labels();
+    } catch (error) {
+      options.status(errorMessage(error));
+    }
+  }
+  function showSettings() {
+    if (working) return;
+    const { body, actions } = createPanel('settings');
+    panel!.classList.add('board-settings-panel');
+    const settings = renderSettings(body, {
+      name: () => options.current().name,
+      rename: renameCurrent,
+      background: options.background,
+      setBackground: options.setBackground,
+      theme: options.theme,
+      setTheme: options.setTheme,
+    });
+    beforeDismiss = settings.commit;
+    const done = control('doneText', dismiss);
+    done.className = 'primary';
+    actions.replaceChildren(done);
+    position();
+    settings.focus();
   }
   function transferPanel(key: string) {
     const { body, actions } = createPanel(key);
@@ -376,10 +438,19 @@ export function createBoardMenu(options: Options) {
     }
     button.title = `${t('boards')} · ${current.name}`;
     button.setAttribute('aria-label', button.title);
-    for (const root of [menu, panel])
+    for (const root of [menu, panel]) {
       root
         ?.querySelectorAll<HTMLElement>('[data-i18n]')
         .forEach((element) => (element.textContent = t(element.dataset.i18n!)));
+      root?.querySelectorAll<HTMLElement>('[data-i18n-aria]').forEach((element) => {
+        element.setAttribute('aria-label', t(element.dataset.i18nAria!));
+        if (element.classList.contains('icon-control'))
+          element.title = t(element.dataset.i18nAria!);
+      });
+      root
+        ?.querySelectorAll<HTMLElement>('[data-i18n-title]')
+        .forEach((element) => (element.title = t(element.dataset.i18nTitle!)));
+    }
     position();
   }
   menu.querySelector('#newBoard')?.addEventListener('click', () => {
@@ -394,6 +465,10 @@ export function createBoardMenu(options: Options) {
   });
   menu.querySelector('#exportAllBoards')?.addEventListener('click', () => {
     void exportFile(true);
+  });
+  menu.querySelector('#boardSettings')?.addEventListener('click', () => {
+    closeMenu();
+    showSettings();
   });
   menu.querySelector('#importBoards')?.addEventListener('click', () => {
     closeMenu();
@@ -423,6 +498,40 @@ export function createBoardMenu(options: Options) {
     )
       closeMenu();
   });
+  /** Tab stays inside the open panel or menu. */
+  function trapFocus(event: KeyboardEvent, root: HTMLElement) {
+    const items = [
+      ...root.querySelectorAll<HTMLElement>('button, input, [tabindex]:not([tabindex="-1"])'),
+    ].filter((item) => !(item as HTMLButtonElement).disabled && item.offsetParent !== null);
+    if (!items.length) return;
+    const first = items[0],
+      last = items[items.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || !root.contains(active))) {
+      event.preventDefault();
+      last.focus({ preventScroll: true });
+    } else if (!event.shiftKey && (active === last || !root.contains(active))) {
+      event.preventDefault();
+      first.focus({ preventScroll: true });
+    }
+  }
+  /** Up/Down/Home/End move between Board menu items. */
+  function moveMenuFocus(event: KeyboardEvent) {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    const items = [...menu.querySelectorAll<HTMLButtonElement>('button')].filter(
+      (item) => !item.disabled
+    );
+    if (!items.length) return;
+    event.preventDefault();
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? items.length - 1
+          : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items[next].focus({ preventScroll: true });
+  }
   document.addEventListener('board:layout', position);
   document.addEventListener('i18n:change', labels);
   labels();
@@ -438,7 +547,8 @@ export function createBoardMenu(options: Options) {
         if (event.key === 'Escape' && !event.isComposing) {
           event.preventDefault();
           dismiss();
-        }
+        } else if (event.key === 'Tab') trapFocus(event, panel ?? menu);
+        else if (!panel) moveMenuFocus(event);
         return true;
       }
       return false;

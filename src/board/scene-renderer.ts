@@ -8,6 +8,8 @@ import { drawShape, resolveShapes, shapeBounds } from './shapes.ts';
 import { resolveTextObjects } from './text-scene.ts';
 import { cachedTextLayout, drawText } from './text-layout.ts';
 import { applyViewport, exportGeometry, unionBounds } from './viewport.ts';
+import { paintBackgroundPattern } from './background.ts';
+import type { BoardBackground } from './background.ts';
 import type { BoardBounds, BoardSize } from './viewport.ts';
 
 export interface BoardScene {
@@ -39,7 +41,8 @@ export function createDrawingCanvas(
   size: BoardSize,
   background: string,
   ink: InkColor,
-  media?: Pick<ContentPaintOptions, 'image'>
+  media?: Pick<ContentPaintOptions, 'image'>,
+  paper?: BoardBackground
 ) {
   const geometry = exportGeometry(scene.bounds, size);
   const out = document.createElement('canvas'),
@@ -53,6 +56,7 @@ export function createDrawingCanvas(
   ctx.fillStyle = background;
   ctx.fillRect(0, 0, out.width, out.height);
   applyViewport(ctx, geometry.view, geometry);
+  if (paper) paintBackgroundPattern(ctx, paper, geometry.view, geometry, background);
   for (const object of scene.content)
     drawContent(ctx, object, { image: media?.image ?? (() => null), background, ink });
   ctx.setTransform(1, 0, 0, 1, 0, 0);
