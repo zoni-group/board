@@ -155,8 +155,13 @@ test('shows storage use on this device', async ({ page, browserName }) => {
   await expect(page.locator('.settings-storage')).toContainText('1 board');
 });
 
-test('Settings follow the language toggle', async ({ page }) => {
-  await page.locator('#langToggle').click();
+test('Settings follow the language toggle', async ({ page, isMobile }) => {
+  // The language toggle is hidden at phone width; pick the language as the toggle would.
+  if (isMobile) {
+    await page.evaluate(() => localStorage.setItem('vatio_board_lang', 'es'));
+    await page.reload();
+    await expect(page.locator('#boards')).toBeEnabled();
+  } else await page.locator('#langToggle').click();
   await openSettings(page);
   await expect(page.locator('#boardPanelTitle')).toHaveText('Ajustes');
   await expect(page.locator('.settings-patterns')).toContainText('Cuadrícula');

@@ -186,9 +186,10 @@ test('a box around one object makes a normal selection, and an empty box clears'
   ]);
   await expect(page.locator('#objectSelection')).toBeVisible();
   await expect(page.locator('#groupSelection')).toHaveCount(0);
+  // Stays inside a phone-width pad (390 px on the touch project).
   await path(page, [
-    { x: 400, y: 250 },
-    { x: 500, y: 300 },
+    { x: 200, y: 220 },
+    { x: 300, y: 280 },
   ]);
   await expect(page.locator('.object-selection')).toBeHidden();
   expect(await commands(page)).toHaveLength(2);
