@@ -1122,9 +1122,12 @@ html.has-iro .color-popup-card{
 #text::after { content:''; position:absolute; right:5px; bottom:7px; border:3px solid transparent; border-top-color:currentColor; transform:translateY(3px); }
 #text { position:relative; }
 /* Pen types: tap the active Pen again to choose Pen, Highlighter or Laser. */
-.pen-picker { grid-template-columns:1fr; width:180px; }
+/* Type menus (Pen types, Select modes) list one choice per row. */
+.type-picker { grid-template-columns:1fr; width:180px; }
 #pen::after { content:''; position:absolute; right:5px; bottom:7px; border:3px solid transparent; border-top-color:currentColor; transform:translateY(3px); }
 #pen { position:relative; }
+#select::after { content:''; position:absolute; right:4px; bottom:6px; border:3px solid transparent; border-top-color:currentColor; transform:translateY(3px); }
+#select { position:relative; }
 .board-content-panel {
   position:fixed; z-index:50; display:flex; flex-direction:column;
   border:1px solid var(--border); border-radius:10px; background:var(--surface);
@@ -1241,6 +1244,29 @@ html.has-iro .color-popup-card{
 .object-selection[hidden], .object-selection-actions[hidden] { display:none; }
 .object-selection-actions .selection-move { cursor:move; touch-action:none; }
 #pad.select-tool-active { cursor:default; }
+/* Box and Lasso selection: the region being drawn, and the outline around a selected group. */
+.selection-marquee {
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  pointer-events:none;
+  z-index:3;
+  overflow:visible;
+}
+.selection-marquee polygon {
+  fill:color-mix(in srgb, var(--btn-fg) 8%, transparent);
+  stroke:var(--btn-fg);
+  stroke-width:1.25;
+  stroke-dasharray:5 4;
+  stroke-linejoin:round;
+}
+.object-selection.group-selection {
+  border-width:1.5px;
+  border-radius:4px;
+  outline:1px dashed color-mix(in srgb, var(--btn-fg) 35%, transparent);
+  outline-offset:3px;
+}
 .text-selection-actions,
 .text-editor-actions {
   display: flex;

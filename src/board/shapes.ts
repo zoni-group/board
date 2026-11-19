@@ -1,11 +1,11 @@
-import { assertNever } from './model.ts';
+import { assertNever, expandCommands } from './model.ts';
 import type { BoardCommand, Point, ShapeKind, ShapeObject } from './model.ts';
 import { boundsIntersect } from './viewport.ts';
 import type { BoardBounds } from './viewport.ts';
 
 export function resolveShapes(commands: readonly BoardCommand[]): ShapeObject[] {
   const objects = new Map<string, ShapeObject>();
-  for (const command of commands) {
+  for (const command of expandCommands(commands)) {
     switch (command.type) {
       case 'clear':
         objects.clear();

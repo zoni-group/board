@@ -109,6 +109,8 @@ interface StrokeData {
 }
 /** Pen types offered by the Pen button. Only the highlighter is stored on strokes; the laser is never saved. */
 export type PenKind = 'pen' | 'highlighter' | 'laser';
+/** Select button modes: tap one object, drag a box, or draw a lasso. */
+export type SelectMode = 'one' | 'box' | 'lasso';
 export interface PenStrokeCommand extends StrokeData {
   tool: 'pen';
   id: string;
@@ -137,16 +139,32 @@ export interface ClearCommand {
   type: 'clear';
 }
 
-export type BoardCommand =
+/** One object change. Batches group several of these into a single undo step. */
+export type AtomicCommand =
   | ContentCommand
   | StrokeCommand
-  | ClearCommand
   | TextSetCommand
   | TextDeleteCommand
   | ShapeSetCommand
   | ShapeDeleteCommand
   | StrokeEditCommand
   | StrokeDeleteCommand;
+/** Several object changes made together (for example moving a selected group). Never nested. */
+export interface BatchCommand {
+  type: 'batch';
+  commands: AtomicCommand[];
+}
+export type BoardCommand = AtomicCommand | ClearCommand | BatchCommand;
+/** What resolvers see after batches are expanded. */
+export type ResolvedCommand = AtomicCommand | ClearCommand;
+
+/** Flattens batches in order. The only place outside validation that needs to know about them. */
+export function* expandCommands(commands: Iterable<BoardCommand>): Generator<ResolvedCommand> {
+  for (const command of commands) {
+    if (command.type === 'batch') yield* command.commands;
+    else yield command;
+  }
+}
 
 export interface BoardSnapshot {
   commands: BoardCommand[];
@@ -358,6 +376,16 @@ export function cloneContentObject<T extends ContentObject>(object: T): T {
 
 export function normalizeCommand(command: unknown): BoardCommand | null {
   if (!isRecord(command)) return null;
+  if (command.type === 'batch') {
+    if (!Array.isArray(command.commands)) return null;
+    const commands = command.commands
+      .map((inner) => normalizeCommand(inner))
+      .filter(
+        (inner): inner is AtomicCommand =>
+          inner !== null && inner.type !== 'batch' && inner.type !== 'clear'
+      );
+    return commands.length ? { type: 'batch', commands } : null;
+  }
   if (command.type === 'content-set') {
     const object = normalizeContentObject(command.object);
     return object ? { type: 'content-set', object } : null;
@@ -463,8 +491,11 @@ export function assertNever(value: never): never {
   throw new Error(`Unhandled board variant: ${JSON.stringify(value)}`);
 }
 
+export function cloneCommand<T extends BoardCommand>(command: T): T;
 export function cloneCommand(command: BoardCommand): BoardCommand {
   switch (command.type) {
+    case 'batch':
+      return { type: 'batch', commands: command.commands.map(cloneCommand) };
     case 'content-set':
       return { type: 'content-set', object: cloneContentObject(command.object) };
     case 'content-delete':

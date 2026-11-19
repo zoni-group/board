@@ -1,4 +1,4 @@
-import { cloneTextObject, isRecord, normalizeTextObject } from './model.ts';
+import { cloneTextObject, expandCommands, isRecord, normalizeTextObject } from './model.ts';
 import type { BoardCommand, TextObject } from './model.ts';
 
 export interface TextDraft {
@@ -28,7 +28,7 @@ export function recoverTextDraft(
   if (!draft) return null;
   if (
     draft.committing &&
-    history.some(
+    [...expandCommands(history)].some(
       (command) =>
         (command.type === 'text-set' &&
           JSON.stringify(command.object) === JSON.stringify(draft.object)) ||

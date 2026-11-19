@@ -1,5 +1,14 @@
 export const IconSelect =
   '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 3 14 10-7 1-3 7-4-18Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>';
+export const IconBoxSelect =
+  '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="13" height="11" rx="1" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.6 2.2"/><path d="m13 11 7.5 5.2-3.6.6-1.6 3.6L13 11Z" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+export const IconLassoSelect =
+  '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M11.5 15.2c-4.4.2-8-1.6-8-4.6 0-3.4 3.8-6.1 8.5-6.1s8.5 2.4 8.5 5.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="2.6 2.2"/><path d="M8.5 15c-1.2 1.4-.8 3.6 1.3 4.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="m13 11 7.5 5.2-3.6.6-1.6 3.6L13 11Z" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+export const SelectIcons = {
+  one: IconSelect,
+  box: IconBoxSelect,
+  lasso: IconLassoSelect,
+};
 export const IconCalculator = `
   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <path d="M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.6"/>

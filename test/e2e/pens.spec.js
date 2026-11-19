@@ -66,7 +66,7 @@ test('opens pen types from the active Pen button without adding toolbar buttons'
   await page.locator('#pen').click();
   await expect(picker).toBeVisible();
   await expect(picker.locator('button')).toHaveText(['Pen', 'Highlighter', 'Laser']);
-  await expect(picker.locator('[data-pen="pen"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(picker.locator('[data-kind="pen"]')).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Escape');
   await expect(picker).toBeHidden();
 

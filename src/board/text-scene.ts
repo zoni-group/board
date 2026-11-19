@@ -1,10 +1,10 @@
-import { assertNever } from './model.ts';
+import { assertNever, expandCommands } from './model.ts';
 import type { BoardCommand, TextObject } from './model.ts';
 
 /** Resolve objects from applied history; replacements retain their stacking order. */
 export function resolveTextObjects(commands: readonly BoardCommand[]): TextObject[] {
   const objects = new Map<string, TextObject>();
-  for (const command of commands) {
+  for (const command of expandCommands(commands)) {
     switch (command.type) {
       case 'clear':
         objects.clear();

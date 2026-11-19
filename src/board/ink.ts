@@ -1,4 +1,4 @@
-import { assertNever } from './model.ts';
+import { assertNever, expandCommands } from './model.ts';
 import type {
   BoardCommand,
   StrokeCommand,
@@ -25,7 +25,7 @@ export function inkBounds(object: InkObject): BoardBounds {
 
 export function resolveInk(commands: readonly BoardCommand[]): InkObject[] {
   const objects = new Map<string, InkObject>();
-  for (const command of commands) {
+  for (const command of expandCommands(commands)) {
     switch (command.type) {
       case 'clear':
         objects.clear();

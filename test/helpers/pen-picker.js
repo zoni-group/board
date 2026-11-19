@@ -10,7 +10,7 @@ export async function selectPen(page, touch = false) {
 export async function choosePen(page, kind, touch = false) {
   await selectPen(page, touch);
   const pen = page.locator('#pen');
-  const item = page.locator(`#penPicker [data-pen="${kind}"]`);
+  const item = page.locator(`#penPicker [data-kind="${kind}"]`);
   if (touch) {
     await pen.tap();
     await item.tap();

@@ -13,7 +13,7 @@ import { drawContent, contentBounds } from './content.ts';
 import { renderInk } from './ink.ts';
 import { createBoardNavigation } from './navigation.ts';
 import { observeScreenLayout } from './screen-layout.ts';
-import { createPenPicker, isPenKind } from './pen-picker.ts';
+import { createTypePicker, isKind } from './type-picker.ts';
 import { createLaser } from './laser.ts';
 import { registerOfflineSupport } from './offline.ts';
 import {
@@ -42,6 +42,7 @@ import type {
   StrokeCommand,
   BoardTool,
   PenKind,
+  SelectMode,
 } from './model.ts';
 import type { Language } from '../i18n.ts';
 
@@ -60,6 +61,8 @@ import {
   IconFit,
   ShapeIcons,
   IconBoard,
+  PenIcons,
+  SelectIcons,
 } from '../icons.ts';
 
 interface Rgb {
@@ -186,7 +189,13 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     },
   };
   const storedPenKind = loadText(LS_PEN_KIND);
-  let penKind: PenKind = isPenKind(storedPenKind) ? storedPenKind : 'pen';
+  const PEN_KINDS: PenKind[] = ['pen', 'highlighter', 'laser'];
+  let penKind: PenKind = isKind(PEN_KINDS, storedPenKind) ? storedPenKind : 'pen';
+  const LS_SELECT_MODE = 'zoni_board_select_mode';
+  const storedSelectMode = loadText(LS_SELECT_MODE);
+  let selectMode: SelectMode = isKind(['one', 'box', 'lasso'], storedSelectMode)
+    ? storedSelectMode
+    : 'one';
   const inkSlot = (): InkSlot => (penKind === 'highlighter' ? 'highlighter' : 'pen');
   inkRaw = inkSlots[inkSlot()].inkRaw;
   sizeEl.value = String(inkSlots[inkSlot()].size);
@@ -305,12 +314,14 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     scene: getScene,
     view: () => viewport ?? initialViewport(boardSize()),
     tool: () => tool,
+    mode: () => selectMode,
     editing: () => textTool.isEditing() || contentTool.isEditing() || Boolean(boardMenu?.isOpen()),
     hidden: () =>
       shapeTool.isBusy() ||
       shapeTool.isPickerOpen() ||
       contentTool.isPickerOpen() ||
-      penPicker.isOpen(),
+      penPicker.isOpen() ||
+      selectPicker.isOpen(),
     redraw: redrawCanvas,
     commit(command) {
       pushHistoryCommand(command);
@@ -367,11 +378,35 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     dpr: () => canvasDpr,
   });
   let laserDrawing = false;
-  const penPicker = createPenPicker({
+  const penPicker = createTypePicker({
+    id: 'penPicker',
     button: penBtn,
+    icons: PenIcons,
     kind: penKind,
+    menuLabel: 'penTypes',
+    label: (kind) => t(kind),
+    buttonLabel: (kind) => t(kind),
     focusTarget: canvas,
+    placement: 'below',
     choose: choosePenKind,
+  });
+  const SELECT_LABELS: Record<SelectMode, string> = {
+    one: 'selectOne',
+    box: 'boxSelect',
+    lasso: 'lassoSelect',
+  };
+  const selectPicker = createTypePicker({
+    id: 'selectPicker',
+    button: selectBtn,
+    icons: SelectIcons,
+    kind: selectMode,
+    menuLabel: 'selectModes',
+    label: (mode) => t(SELECT_LABELS[mode]),
+    // "Select" keeps its name in the default mode; other modes are named after themselves.
+    buttonLabel: (mode) => t(mode === 'one' ? 'select' : SELECT_LABELS[mode]),
+    focusTarget: canvas,
+    placement: 'above',
+    choose: chooseSelectMode,
   });
   const textTool = createTextTool({
     canvas,
@@ -523,7 +558,13 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     if (shouldAnnounce) {
       setStatus(
         tool === 'select'
-          ? t('selectHint')
+          ? t(
+              selectMode === 'box'
+                ? 'boxSelectHint'
+                : selectMode === 'lasso'
+                  ? 'lassoSelectHint'
+                  : 'selectHint'
+            )
           : tool === 'text'
             ? t('text')
             : tool === 'shapes'
@@ -1472,7 +1513,22 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
   }
   eraseBtn.addEventListener('click', () => selectTool('eraser'));
   handBtn.addEventListener('click', () => selectTool('hand'));
-  selectBtn.addEventListener('click', () => selectTool('select'));
+  selectBtn.addEventListener('click', () => {
+    if (selectPicker.isOpen()) {
+      selectPicker.close();
+      return;
+    }
+    // First tap selects; tapping the active Select opens its modes, like Pen.
+    const wasSelect = tool === 'select';
+    if (selectTool('select') && wasSelect) selectPicker.toggle();
+  });
+  function chooseSelectMode(next: SelectMode) {
+    if (!selectTool('select')) return;
+    selectMode = next;
+    saveText(LS_SELECT_MODE, selectMode);
+    selectPicker.setKind(selectMode);
+    setActive();
+  }
   function zoomFromControl(zoom: number) {
     if (
       !boardReady ||
@@ -1546,6 +1602,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
     if (event.defaultPrevented || event.isComposing) return;
     if (boardMenu.handleKey(event)) return;
     if (penPicker.handleKey(event)) return;
+    if (selectPicker.handleKey(event)) return;
     if (contentTool.handleKey(event)) return;
     if (shapeTool.handleKey(event)) return;
     if (selection.handleKey(event)) return;

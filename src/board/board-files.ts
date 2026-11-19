@@ -1,6 +1,7 @@
 import { Unzip, Zip, ZipPassThrough, strFromU8, strToU8 } from 'fflate';
 import { assetIdFor, IMAGE_TYPES, VIDEO_TYPES } from './assets.ts';
-import { cloneCommand, isRecord } from './model.ts';
+import { cloneCommand, expandCommands, isRecord } from './model.ts';
+import type { AtomicCommand, BoardCommand } from './model.ts';
 import { getAssetRecord, importBoardRecords, normalizeBoardDocument } from './storage.ts';
 import type { BoardDocument, StoredAsset, BinaryAsset } from './storage.ts';
 
@@ -43,7 +44,7 @@ async function hash(bytes: Uint8Array): Promise<string> {
 }
 export function referencedAssets(board: BoardDocument): Map<string, 'image' | 'video'> {
   const ids = new Map<string, 'image' | 'video'>();
-  for (const command of [...board.commands, ...board.redoCommands])
+  for (const command of expandCommands([...board.commands, ...board.redoCommands]))
     if (command.type === 'content-set') {
       const id = assetIdFor(command.object);
       if (id) {
@@ -320,13 +321,17 @@ export async function readBoardArchive(
   for (const board of boards) {
     board.id = boardIds.get(board.id)!;
     board.revision = 0;
-    const remap = (command: BoardDocument['commands'][number]) => {
-      const copy = cloneCommand(command);
+    const remapAssets = (copy: AtomicCommand) => {
       if (copy.type === 'content-set') {
         if (copy.object.kind === 'image') copy.object.assetId = assetIds.get(copy.object.assetId)!;
         if (copy.object.kind === 'video' && copy.object.source.kind === 'local')
           copy.object.source.assetId = assetIds.get(copy.object.source.assetId)!;
       }
+    };
+    const remap = (command: BoardCommand) => {
+      const copy = cloneCommand(command);
+      if (copy.type === 'batch') copy.commands.forEach(remapAssets);
+      else if (copy.type !== 'clear') remapAssets(copy);
       return copy;
     };
     board.commands = board.commands.map(remap);

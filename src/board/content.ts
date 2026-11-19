@@ -7,6 +7,7 @@ import type {
   TextParagraph,
   TextRun,
 } from './model.ts';
+import { expandCommands } from './model.ts';
 import { assetIdFor } from './assets.ts';
 import { drawText, layoutText, textFont } from './text-layout.ts';
 import type { TextLayout } from './text-layout.ts';
@@ -15,7 +16,7 @@ import { t } from '../i18n.ts';
 
 export function resolveContent(commands: readonly BoardCommand[]): ContentObject[] {
   const objects = new Map<string, ContentObject>();
-  for (const command of commands) {
+  for (const command of expandCommands(commands)) {
     if (command.type === 'clear') objects.clear();
     if (command.type === 'content-set') objects.set(command.object.id, command.object);
     if (command.type === 'content-delete') for (const id of command.ids) objects.delete(id);

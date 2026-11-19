@@ -121,6 +121,40 @@ describe('current portable board format', () => {
     ).toBe('movie');
     expect((await getBoardLibrary()).boards).toHaveLength(1);
   });
+  it('exports media referenced only inside a batch and remaps it on import', async () => {
+    const assetId = await saveAsset(first.id, {
+      kind: 'image',
+      width: 200,
+      height: 100,
+      blob: new Blob(['grouped pixels'], { type: 'image/png' }),
+    });
+    const image = { ...imageObject(), assetId };
+    const moved = { ...image, position: { x: image.position.x + 40, y: image.position.y } };
+    const board = await saveBoardDrawing(
+      first.id,
+      {
+        commands: [
+          {
+            type: 'batch',
+            commands: [
+              { type: 'content-set', object: moved },
+              { type: 'text-set', object: textObject() },
+            ],
+          },
+        ],
+        redoCommands: [],
+        viewport: null,
+        draft: null,
+      },
+      0
+    );
+    const prepared = await readBoardArchive(await exportBoards([board], board.id));
+    const [batch] = prepared.boards[0].commands;
+    expect(batch.type).toBe('batch');
+    expect(batch.commands[0].object.assetId).not.toBe(assetId);
+    expect(prepared.assets.map((asset) => asset.id)).toEqual([batch.commands[0].object.assetId]);
+    expect(batch.commands[1]).toEqual(board.commands[0].commands[1]);
+  });
   it('imports all boards as independent copies and restores the exported active board', async () => {
     const a = await fixture(),
       b = await createBoard('Lesson B'),

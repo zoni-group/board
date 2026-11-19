@@ -165,8 +165,36 @@ movement begun with Text's Move handle. Stylus palm rejection, fixed-size contro
 undo/redo, Fit and whole-board PNG export apply to all object edits. Selection outlines and handles
 are temporary and never saved or exported.
 
-Selection supports one object at a time. Grouping, box selection, pen/text geometry resizing,
-rotation and new fill/opacity attributes are outside this version's scope. No remote storage is added.
+### Select modes: Select one, Box, Lasso
+
+Tapping the active **Select** button opens its modes, the same way the Pen button opens pen types.
+The menu opens above the navigation strip, the button shows the current mode, and the choice is
+remembered on this device.
+
+- **Select one** (default) is the behavior described above. Dragging on empty space only
+  clears the selection.
+- **Box** drags a dashed rectangle on empty space, and **Lasso** draws a freeform loop. A stroke
+  is caught when at least 75% of its points are inside, so a loose loop still catches a whole
+  handwritten word. Shapes, text, and media are caught when their center and at least three
+  corners are inside.
+- Catching one object makes a normal single selection with its handles and actions. Catching
+  two or more makes a **group** with one outline and **Delete**/**Done** actions. An empty or
+  tiny region clears the selection. Tapping an object still selects only that object in every
+  mode.
+- Drag inside a group's outline, or use the arrow keys (Shift: ten units), to move every member.
+  Delete/Backspace removes them, and Escape clears the selection or cancels an unfinished move or
+  region. The color and size controls restyle every stroke and shape in the group. They stay
+  disabled when the group holds only text and media.
+- Each group move, delete, or restyle is a single `batch` command, so one Undo reverts it.
+  Batches contain ordinary object commands, are never nested, and never contain Clear.
+  `expandCommands` in `model.ts` is the only reader that needs to know about them. Same-kind
+  deletes are stored as one plain delete command.
+- A second finger, pan, or zoom cancels an unfinished region or group move. Switching tools
+  clears the group.
+
+Resizing or rotating a group, Shift-tap to add objects, copy/duplicate, pen/text geometry
+resizing, rotation, and new fill/opacity attributes are outside this version's scope. No remote
+storage is added.
 
 ## Images, Tables, and Videos
 
