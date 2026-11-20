@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { boardAction } from '../helpers/board-menu.js';
+import { chooseObject } from '../helpers/object-picker.js';
 
 // A 1×1 PNG, so the stored image is a real one.
 const PNG = [
@@ -165,4 +166,34 @@ test('Free up space drops history before Clear and frees its images', async ({ p
   await page.locator('#undo').click();
   await expect.poll(async () => (await board(page)).commands).toEqual([]);
   await expect(page.locator('#undo')).toBeDisabled();
+});
+
+test('clean-up never saves the board, so a failed save keeps its own message', async ({ page }) => {
+  await page.addInitScript(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (...args) {
+      if (this.name === 'boards' && sessionStorage.getItem('blockBoardSave'))
+        throw new DOMException('Full', 'QuotaExceededError');
+      return put.apply(this, args);
+    };
+  });
+  await seed(page, {
+    assets: ['orphan'],
+    commands: [stroke('kept', 200)],
+    viewport: { center: { x: 0, y: 0 }, zoom: 1 },
+  });
+  await page.evaluate(() => sessionStorage.setItem('blockBoardSave', '1'));
+  await page.reload();
+  await expect(page.locator('#boards')).toBeEnabled();
+  // A text edit whose save fails, while the clean-up from opening the board is still pending.
+  await chooseObject(page, 'text');
+  await page.locator('#pad').click({ position: { x: 100, y: 300 } });
+  const input = page.locator('notectl-editor').getByRole('textbox');
+  await expect(input).toBeVisible();
+  await input.pressSequentially('Unsaved');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(page.locator('#status')).toContainText('Could not save text');
+  await expect.poll(() => stored(page, 'orphan')).toBe(false);
+  await afterCleanup(page);
+  await expect(page.locator('#status')).toContainText('Could not save text');
 });

@@ -786,7 +786,8 @@ for (const [id, icon] of [
   let cleanupTimer: number | undefined;
   /**
    * Deletes the open board's media that no page's history refers to anymore. It runs a moment
-   * after the change, never during a media insert, and only once the board is saved.
+   * after the change and never during a media insert. It never saves the board itself, so it
+   * can't cause a save, or a save error, of its own.
    */
   function scheduleAssetCleanup(delay = 2000) {
     window.clearTimeout(cleanupTimer);
@@ -798,9 +799,10 @@ for (const [id, icon] of [
       return;
     }
     const session = boardSession;
-    const saved = (await queueBoardPersistence()) && (await session.flush());
-    if (!saved || session !== boardSession || contentTool.isEditing()) return;
-    // The saved document decides; what this tab holds in memory is kept as well.
+    // Wait for a save in progress, but don't start one.
+    await session.flush();
+    if (session !== boardSession || contentTool.isEditing()) return;
+    // Media the saved board or this tab's unsaved state still uses are both kept.
     await pruneBoardAssets(session.record.id, boardAssetIds(currentDocument())).catch(() => 0);
   }
   /**
