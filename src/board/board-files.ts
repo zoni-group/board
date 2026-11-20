@@ -2,7 +2,13 @@ import { Unzip, Zip, ZipPassThrough, strFromU8, strToU8 } from 'fflate';
 import { assetIdFor, IMAGE_TYPES, VIDEO_TYPES } from './assets.ts';
 import { cloneCommand, expandCommands, isRecord } from './model.ts';
 import type { AtomicCommand, BoardCommand } from './model.ts';
-import { getAssetRecord, importBoardRecords, normalizeBoardDocument } from './storage.ts';
+import {
+  boardPageSnapshots,
+  getAssetRecord,
+  importBoardRecords,
+  normalizeBoardDocument,
+  toStoredBoard,
+} from './storage.ts';
 import type { BoardDocument, StoredAsset, BinaryAsset } from './storage.ts';
 
 const MAX_MANIFEST_BYTES = 32 * 1024 * 1024;
@@ -21,7 +27,7 @@ interface Manifest {
   format: 'zoniboard';
   version: 1;
   activeBoardId: string;
-  boards: BoardDocument[];
+  boards: Record<string, unknown>[];
   assets: AssetManifest[];
 }
 export interface TransferOptions {
@@ -44,7 +50,11 @@ async function hash(bytes: Uint8Array): Promise<string> {
 }
 export function referencedAssets(board: BoardDocument): Map<string, 'image' | 'video'> {
   const ids = new Map<string, 'image' | 'video'>();
-  for (const command of expandCommands([...board.commands, ...board.redoCommands]))
+  const lists = boardPageSnapshots(board).flatMap((page) => [
+    ...page.commands,
+    ...page.redoCommands,
+  ]);
+  for (const command of expandCommands(lists))
     if (command.type === 'content-set') {
       const id = assetIdFor(command.object);
       if (id) {
@@ -65,7 +75,7 @@ export async function exportBoards(
     format: 'zoniboard',
     version: 1,
     activeBoardId: activeId,
-    boards: boards.map((b) => ({ ...structuredClone(b), draft: null })),
+    boards: boards.map((b) => toStoredBoard({ ...structuredClone(b), draft: null })),
     assets: [],
   };
   if (!boards.length || !boards.some((b) => b.id === activeId)) fail();
@@ -336,6 +346,15 @@ export async function readBoardArchive(
     };
     board.commands = board.commands.map(remap);
     board.redoCommands = board.redoCommands.map(remap);
+    board.pages = board.pages.map((page, index) =>
+      index === board.pageIndex
+        ? { ...page, commands: board.commands, redoCommands: board.redoCommands }
+        : {
+            ...page,
+            commands: page.commands.map(remap),
+            redoCommands: page.redoCommands.map(remap),
+          }
+    );
   }
   check(options);
   return { boards, assets, activeId: boardIds.get(raw.activeBoardId)! };

@@ -17,15 +17,33 @@ export interface BoardSummary {
   updatedAtMs: number;
   revision: number;
 }
+/** One page of a lesson: its own drawing, undo history and view. */
+export interface BoardPage extends BoardSnapshot {
+  id: string;
+  viewport: BoardViewport | null;
+}
+/**
+ * The flat `commands`, `redoCommands` and `viewport` are always the open page, so code that
+ * works on "the board" works on the page being shown. `pages` lists every page in order; its
+ * entry at `pageIndex` is refreshed from the flat fields whenever the board is normalized.
+ */
 export interface BoardState extends BoardSnapshot {
   viewport: BoardViewport | null;
   draft: TextDraft | null;
+  /** Left out by callers that only change the open page; the stored pages are kept. */
+  pages?: BoardPage[];
+  pageIndex?: number;
 }
 export interface BoardDocument extends BoardSummary, BoardState {
-  version: 1;
-  /** Page pattern and color. Optional in stored data; normalized to the default. */
+  /** 1: one page, stored flat. 2: several pages. Older app versions refuse 2 instead of losing pages. */
+  version: 1 | 2;
+  /** Paper pattern and color, shared by every page. Optional in stored data; normalized to the default. */
   background: BoardBackground;
+  pages: BoardPage[];
+  pageIndex: number;
 }
+export const MAX_PAGES = 200;
+const FIRST_PAGE_ID = 'page-1';
 export interface BoardLibrary {
   version: 1;
   activeBoardId: BoardId;
@@ -87,10 +105,36 @@ export function normalizeSnapshot(value: unknown): BoardSnapshot | null {
     redoCommands: redoCommands as BoardSnapshot['redoCommands'],
   };
 }
+function normalizePages(
+  value: Record<string, unknown>,
+  open: BoardPage
+): { pages: BoardPage[]; pageIndex: number } | null {
+  // In-memory documents carry `pages` whatever their version; flat v1 records have none.
+  if (value.version === 1 && !Array.isArray(value.pages)) return { pages: [open], pageIndex: 0 };
+  const list = value.pages;
+  if (!Array.isArray(list) || !list.length || list.length > MAX_PAGES) return null;
+  const pageIndex = Number.isSafeInteger(value.pageIndex)
+    ? Math.min(Math.max(value.pageIndex as number, 0), list.length - 1)
+    : 0;
+  const pages: BoardPage[] = [];
+  for (const [index, page] of list.entries()) {
+    if (!isRecord(page) || typeof page.id !== 'string' || !page.id) return null;
+    if (index === pageIndex) {
+      pages.push({ ...open, id: page.id });
+      continue;
+    }
+    const snapshot = normalizeSnapshot(page);
+    const viewport = page.viewport == null ? null : normalizeViewport(page.viewport);
+    if (!snapshot || (page.viewport != null && !viewport)) return null;
+    pages.push({ id: page.id, ...snapshot, viewport });
+  }
+  if (new Set(pages.map((page) => page.id)).size !== pages.length) return null;
+  return { pages, pageIndex };
+}
 export function normalizeBoardDocument(value: unknown): BoardDocument | null {
   if (
     !isRecord(value) ||
-    value.version !== 1 ||
+    (value.version !== 1 && value.version !== 2) ||
     typeof value.id !== 'string' ||
     !value.id ||
     typeof value.name !== 'string' ||
@@ -109,8 +153,10 @@ export function normalizeBoardDocument(value: unknown): BoardDocument | null {
   const draft = value.draft === null ? null : normalizeTextDraft(value.draft);
   if (!snapshot || (value.viewport !== null && !viewport) || (value.draft !== null && !draft))
     return null;
+  const paging = normalizePages(value, { id: FIRST_PAGE_ID, ...snapshot, viewport });
+  if (!paging) return null;
   return {
-    version: 1,
+    version: paging.pages.length > 1 ? 2 : 1,
     id: value.id,
     name: value.name.trim(),
     createdAtMs: value.createdAtMs,
@@ -120,7 +166,27 @@ export function normalizeBoardDocument(value: unknown): BoardDocument | null {
     viewport,
     draft,
     background: normalizeBackground(value.background),
+    ...paging,
   };
+}
+/**
+ * The record written to the database and to archives. A one-page board keeps the original flat
+ * format; with several pages, the open page's entry holds only its id because the flat fields
+ * already store it.
+ */
+export function toStoredBoard(board: BoardDocument): Record<string, unknown> {
+  const { pages, pageIndex, ...rest } = board;
+  if (pages.length <= 1) return { ...rest, version: 1 };
+  return {
+    ...rest,
+    version: 2,
+    pageIndex,
+    pages: pages.map((page, index) => (index === pageIndex ? { id: page.id } : page)),
+  };
+}
+/** Every page's commands and redo commands, the open page first. */
+export function boardPageSnapshots(board: BoardDocument): BoardSnapshot[] {
+  return [board, ...board.pages.filter((_, index) => index !== board.pageIndex)];
 }
 function summary(board: BoardDocument): BoardSummary {
   const { id, name, createdAtMs, updatedAtMs, revision } = board;
@@ -162,6 +228,8 @@ export function emptyBoard(name: string): BoardDocument {
     viewport: null,
     draft: null,
     background: { ...DEFAULT_BACKGROUND },
+    pages: [{ id: FIRST_PAGE_ID, commands: [], redoCommands: [], viewport: null }],
+    pageIndex: 0,
   };
 }
 export function uniqueBoardName(name: string, boards: readonly BoardSummary[]): string {
@@ -259,7 +327,7 @@ export async function initializeLibrary(baseName = 'Board'): Promise<BoardDocume
     const saved = await read(meta.get('library'));
     if (saved === undefined) {
       const board = emptyBoard(`${baseName} 1`);
-      store.put(board);
+      store.put(toStoredBoard(board));
       meta.put({ version: 1, activeBoardId: board.id, boards: [summary(board)] }, 'library');
       return board;
     }
@@ -303,7 +371,7 @@ export async function createBoard(name?: string, baseName = 'Board'): Promise<Bo
     const board = emptyBoard(
       name ? uniqueBoardName(name, library.boards) : nextName(library.boards, baseName)
     );
-    tx.objectStore('boards').put(board);
+    tx.objectStore('boards').put(toStoredBoard(board));
     meta.put(
       { ...library, activeBoardId: board.id, boards: [...library.boards, summary(board)] },
       'library'
@@ -321,7 +389,7 @@ export async function renameBoard(id: BoardId, name: string): Promise<BoardSumma
     const board = normalizeBoardDocument(await read(store.get(id)));
     if (!board) throw new BoardStorageError('boardDeleted');
     const next = { ...board, name: trimmed };
-    store.put(next);
+    store.put(toStoredBoard(next));
     meta.put(
       { ...library, boards: library.boards.map((b) => (b.id === id ? summary(next) : b)) },
       'library'
@@ -339,7 +407,7 @@ export async function updateBoardBackground(
     const store = tx.objectStore('boards');
     const board = normalizeBoardDocument(await read(store.get(id)));
     if (!board) throw new BoardStorageError('boardDeleted');
-    store.put({ ...board, background: next });
+    store.put(toStoredBoard({ ...board, background: next }));
     return next;
   });
 }
@@ -362,11 +430,12 @@ export async function saveBoardDrawing(
       redoCommands: state.redoCommands,
       viewport: state.viewport,
       draft: state.draft,
+      ...(state.pages ? { pages: state.pages, pageIndex: state.pageIndex ?? 0 } : {}),
       revision: previous.revision + 1,
       updatedAtMs: Date.now(),
     });
     if (!next) throw new BoardStorageError('invalidBoard');
-    store.put(next);
+    store.put(toStoredBoard(next));
     meta.put(
       { ...library, boards: library.boards.map((b) => (b.id === id ? summary(next) : b)) },
       'library'
@@ -390,7 +459,7 @@ export async function deleteBoard(id: BoardId, baseName = 'Board'): Promise<Boar
     let next: BoardDocument;
     if (!remaining.length) {
       next = emptyBoard(`${baseName} 1`);
-      store.put(next);
+      store.put(toStoredBoard(next));
       remaining.push(summary(next));
     } else {
       const active = remaining.find((b) => b.id === library.activeBoardId) ?? remaining[0];
@@ -453,7 +522,7 @@ export async function importBoardRecords(
     const summaries = [...library.boards];
     for (const board of boards) {
       board.name = uniqueBoardName(board.name, summaries);
-      tx.objectStore('boards').add(board);
+      tx.objectStore('boards').add(toStoredBoard(board));
       summaries.push(summary(board));
     }
     for (const asset of assets) tx.objectStore('assets').add(asset);
@@ -473,7 +542,15 @@ export function createBoardSession(initial: BoardDocument, onError: (error: unkn
     running: Promise<boolean> | null = null;
   let waiters: ((ok: boolean) => void)[] = [];
   const stateKey = (state: BoardState) =>
-    JSON.stringify([state.commands, state.redoCommands, state.viewport, state.draft]);
+    JSON.stringify([
+      state.commands,
+      state.redoCommands,
+      state.viewport,
+      state.draft,
+      state.pageIndex,
+      // The open page is already in the flat fields.
+      state.pages?.map((page, index) => (index === state.pageIndex ? page.id : page)),
+    ]);
   let savedKey = stateKey(initial);
   const session = {
     get record() {
@@ -504,6 +581,7 @@ export function createBoardSession(initial: BoardDocument, onError: (error: unkn
               savedKey = key;
               record = {
                 ...record,
+                version: saved.version,
                 name: saved.name,
                 revision: saved.revision,
                 updatedAtMs: saved.updatedAtMs,

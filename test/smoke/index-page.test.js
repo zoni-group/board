@@ -72,6 +72,9 @@ describe('index.html smoke', () => {
     expect(document.getElementById('save').textContent.trim()).toBe('Save PNG');
     expect(document.getElementById('boardSettings').textContent.trim()).toBe('Settings…');
     expect(document.getElementById('boardMenu').hidden).toBe(true);
+    expect(document.getElementById('addPage').textContent.trim()).toBe('Add page');
+    expect(document.getElementById('addPage').querySelector('.btn-icon svg')).not.toBeNull();
+    expect(document.getElementById('pageNav').hidden).toBe(true);
     expect(document.getElementById('undo').disabled).toBe(true);
     expect(document.getElementById('redo').disabled).toBe(true);
     expect(document.getElementById('sizePreview')).toBeTruthy();

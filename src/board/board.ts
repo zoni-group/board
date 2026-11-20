@@ -4,9 +4,11 @@ import {
   initializeLibrary,
   createBoardSession,
   emptyBoard,
+  MAX_PAGES,
   updateBoardBackground,
 } from './storage.ts';
-import type { BoardDocument, BoardSession } from './storage.ts';
+import type { BoardDocument, BoardPage, BoardSession } from './storage.ts';
+import { createPageNav } from './page-nav.ts';
 import { createBoardMenu, boardFileName } from './board-menu.ts';
 import { cloneCommand, clonePoint } from './model.ts';
 import { createTextTool } from './text-tool.ts';
@@ -86,6 +88,7 @@ import {
   IconImage,
   IconSettings,
   IconTrash,
+  IconAddPage,
 } from '../icons.ts';
 
 interface ToolOptions {
@@ -141,6 +144,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
 for (const [id, icon] of [
   ['newBoard', IconPlus],
   ['openBoards', IconFolder],
+  ['addPage', IconAddPage],
   ['exportBoard', IconExport],
   ['exportAllBoards', IconExportAll],
   ['importBoards', IconImport],
@@ -339,6 +343,9 @@ for (const [id, icon] of [
   let sceneLast: BoardCommand | undefined;
   const commandHistory: BoardCommand[] = [];
   const redoHistory: BoardCommand[] = [];
+  // The open page lives in commandHistory, redoHistory and viewport; its entry here is stale.
+  let pages: BoardPage[] = [];
+  let pageIndex = 0;
   const assets = createAssetCache(redrawCanvas);
   const selection = createSelection({
     canvas,
@@ -666,11 +673,16 @@ for (const [id, icon] of [
     };
   }
 
+  /** The page list to save: a new array, so stored pages never change under the session. */
+  function pagesState(): Pick<BoardDocument, 'pages' | 'pageIndex'> {
+    return { pages: pages.slice(), pageIndex };
+  }
   function currentDocument(): BoardDocument {
     return {
       ...(boardSession?.snapshot() ?? structuredClone(bootstrapBoard)),
       ...createBoardDrawingSnapshot(),
       viewport: viewport ? structuredClone(viewport) : null,
+      ...(boardSession ? structuredClone(pagesState()) : {}),
     };
   }
   function storageFailure(error: unknown) {
@@ -679,8 +691,61 @@ for (const [id, icon] of [
   }
   function queueBoardPersistence() {
     if (!boardSession) return Promise.resolve(false);
-    boardSession.update({ ...createBoardDrawingSnapshot(), viewport });
+    boardSession.update({ ...createBoardDrawingSnapshot(), viewport, ...pagesState() });
     return boardSession.save();
+  }
+  function resetScene() {
+    scene = null;
+    sceneLength = -1;
+    sceneLast = undefined;
+  }
+  function loadPage(page: Pick<BoardPage, 'commands' | 'redoCommands' | 'viewport'>) {
+    commandHistory.splice(0, commandHistory.length, ...page.commands.map(cloneCommand));
+    redoHistory.splice(0, redoHistory.length, ...page.redoCommands.map(cloneCommand));
+    viewport = page.viewport ? structuredClone(page.viewport) : initialViewport(boardSize());
+    resetScene();
+  }
+  /** Leaves the open page: finishes the active tool and keeps its drawing, history and view. */
+  function showPage(index: number, { announce = true } = {}) {
+    if (!boardReady || index < 0 || index >= pages.length || index === pageIndex) return false;
+    if (!contentTool.finish() || !textTool.finish()) return false;
+    contentTool.closePicker();
+    shapeTool.flushStyle();
+    shapeTool.cancel();
+    selection.flushStyle();
+    selection.cancel();
+    selection.clear();
+    navigation.cancel();
+    finishStroke({ commit: false });
+    window.clearTimeout(viewportTimer);
+    viewportDirty = false;
+    pages[pageIndex] = {
+      id: pages[pageIndex].id,
+      ...createBoardDrawingSnapshot(),
+      viewport: viewport ? structuredClone(viewport) : null,
+    };
+    pageIndex = index;
+    loadPage(pages[index]);
+    syncHistoryButtons();
+    syncViewportControls();
+    redrawCanvas();
+    pageNav.sync(pageIndex, pages.length);
+    if (announce) setStatus(t('pageOf', { page: pageIndex + 1, count: pages.length }));
+    void queueBoardPersistence();
+    return true;
+  }
+  function addPage() {
+    if (!boardReady || pages.length >= MAX_PAGES) return;
+    const at = pageIndex + 1;
+    pages.splice(at, 0, {
+      id: crypto.randomUUID(),
+      commands: [],
+      redoCommands: [],
+      viewport: null,
+    });
+    // Keep the open page's index pointing at it until showPage stores it.
+    if (!showPage(at)) pages.splice(at, 1);
+    canvas.focus({ preventScroll: true });
   }
   async function activateBoard(board: BoardDocument) {
     boardReady = false;
@@ -692,19 +757,16 @@ for (const [id, icon] of [
     textTool.reset();
     shapeTool.activate(false);
     selection.clear();
-    commandHistory.splice(0, commandHistory.length, ...board.commands.map(cloneCommand));
-    redoHistory.splice(0, redoHistory.length, ...board.redoCommands.map(cloneCommand));
     boardSession = createBoardSession(board, (error) => {
       if (boardSession?.record.id === board.id) storageFailure(error);
     });
-    viewport = board.viewport ?? initialViewport(boardSize());
+    pages = structuredClone(board.pages);
+    pageIndex = board.pageIndex;
+    loadPage(board);
     boardBackground = { ...board.background };
     canvasFrame?.style.setProperty('--board-canvas-bg', currentCanvasBg());
     renderSwatches();
     applyInk();
-    scene = null;
-    sceneLength = -1;
-    sceneLast = undefined;
     assets.clear();
     tool = 'pen';
     if (!board.viewport) await queueBoardPersistence();
@@ -714,6 +776,7 @@ for (const [id, icon] of [
     syncViewportControls();
     setActive({ announce: false });
     redrawCanvas();
+    pageNav.sync(pageIndex, pages.length);
     boardMenu?.labels();
     setStatus(t('ready'));
     if (textTool.recover()) {
@@ -758,6 +821,11 @@ for (const [id, icon] of [
     },
     theme: storedTheme,
     setTheme: (choice) => setTheme(choice),
+    addPage,
+  });
+  const pageNav = createPageNav({
+    nav: requireElement('pageNav', 'nav'),
+    go: (index) => showPage(index),
   });
 
   function pushHistoryCommand(command: BoardCommand, { clearRedo = true } = {}) {
@@ -1342,7 +1410,11 @@ for (const [id, icon] of [
 
   async function exportCanvasAsPng() {
     const scene = getScene();
-    const fileName = boardFileName(boardSession?.record.name ?? t('boardDefaultName'), 'png');
+    const name = boardSession?.record.name ?? t('boardDefaultName');
+    const fileName = boardFileName(
+      pages.length > 1 ? `${name} - ${t('pageFile', { page: pageIndex + 1 })}` : name,
+      'png'
+    );
     const exportAssets = createAssetCache(() => {});
     try {
       await exportAssets.prepare(scene.content);
@@ -1602,6 +1674,17 @@ for (const [id, icon] of [
     if (navigation.handleKey(event)) return;
     if (textTool.handleKey(event)) return;
     if (isEditableElement(document.activeElement)) return;
+    if (
+      (event.key === 'PageUp' || event.key === 'PageDown') &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      pages.length > 1
+    ) {
+      event.preventDefault();
+      showPage(pageIndex + (event.key === 'PageDown' ? 1 : -1));
+      return;
+    }
     if (
       event.key.toLowerCase() === 'v' &&
       !event.ctrlKey &&

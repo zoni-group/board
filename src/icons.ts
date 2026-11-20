@@ -270,6 +270,11 @@ export const IconImport = menuIcon(
 export const IconRename = menuIcon(
   '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16Z"/><path d="m13.5 6.5 4 4"/>'
 );
+export const IconAddPage = menuIcon(
+  '<path d="M13.5 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z"/><path d="M13.5 3.5V9H19M12 12v5M9.5 14.5h5"/>'
+);
+export const IconChevronLeft = menuIcon('<path d="m14.5 6-6 6 6 6"/>');
+export const IconChevronRight = menuIcon('<path d="m9.5 6 6 6-6 6"/>');
 
 // Page backgrounds
 const paperIcon = (body: string) =>

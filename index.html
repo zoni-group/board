@@ -359,6 +359,11 @@
           <canvas id="shapeLayer" class="board-shape-layer" aria-hidden="true"></canvas>
           <canvas id="textLayer" class="board-text-layer" aria-hidden="true"></canvas>
           <canvas id="laserLayer" class="board-laser-layer" aria-hidden="true"></canvas>
+          <nav id="pageNav" class="page-nav" aria-label="Pages" data-i18n-aria="pages" hidden>
+            <button id="prevPage" type="button" aria-label="Previous page" data-i18n-aria="previousPage" data-i18n-title="previousPage" title="Previous page"><span class="btn-icon" aria-hidden="true"></span></button>
+            <span id="pageLabel" class="page-label" aria-live="polite"></span>
+            <button id="nextPage" type="button" aria-label="Next page" data-i18n-aria="nextPage" data-i18n-title="nextPage" title="Next page"><span class="btn-icon" aria-hidden="true"></span></button>
+          </nav>
           <div class="right-stack board-canvas-meta" aria-label="Status and attribution">
             <span id="status" class="status" data-i18n="ready">Ready</span>
             <span class="attribution" aria-label="Local save notice">
@@ -375,6 +380,7 @@
       </div>
       <button id="newBoard" type="button" class="menu-item"><span class="btn-icon" aria-hidden="true"></span><span data-i18n="newBoard">New board</span></button>
       <button id="openBoards" type="button" class="menu-item"><span class="btn-icon" aria-hidden="true"></span><span data-i18n="openBoards">Open boards…</span></button>
+      <button id="addPage" type="button" class="menu-item"><span class="btn-icon" aria-hidden="true"></span><span data-i18n="addPage">Add page</span></button>
       <hr />
       <button id="exportBoard" type="button" class="menu-item"><span class="btn-icon" aria-hidden="true"></span><span data-i18n="exportBoard">Export board</span></button>
       <button id="exportAllBoards" type="button" class="menu-item"><span class="btn-icon" aria-hidden="true"></span><span data-i18n="exportAllBoards">Export all boards</span></button>

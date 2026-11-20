@@ -18,6 +18,7 @@ import {
   closeLibraryDatabase,
   updateBoardBackground,
   normalizeBoardDocument,
+  toStoredBoard,
 } from '../../src/board/storage.ts';
 import { textObject } from '../helpers/text-fixture.js';
 let first;
@@ -191,7 +192,7 @@ describe('fresh board library', () => {
     const db = await rawDatabase();
     await new Promise((resolve) => {
       const tx = db.transaction('boards', 'readwrite');
-      tx.objectStore('boards').put({ ...first, version: 2 });
+      tx.objectStore('boards').put({ ...first, version: 3 });
       tx.oncomplete = resolve;
     });
     db.close();
@@ -241,5 +242,86 @@ describe('fresh board library', () => {
     await a.flush();
     expect((await loadBoardDrawing(first.id)).commands).toEqual([stroke, { type: 'clear' }]);
     expect((await loadBoardDrawing(second.id)).commands[0].type).toBe('text-set');
+  });
+});
+
+describe('lesson pages', () => {
+  const page = (id, commands = [], viewport = null) => ({
+    id,
+    commands,
+    redoCommands: [],
+    viewport,
+  });
+  async function storedRecord(id) {
+    const db = await rawDatabase();
+    const value = await new Promise((resolve) => {
+      const request = db.transaction('boards').objectStore('boards').get(id);
+      request.onsuccess = () => resolve(request.result);
+    });
+    db.close();
+    return value;
+  }
+
+  it('loads a flat board as its only page and keeps one-page boards flat', async () => {
+    expect(first.pages).toEqual([page('page-1')]);
+    expect(first.pageIndex).toBe(0);
+    await saveBoardDrawing(first.id, state({ commands: [stroke] }), 0);
+    const record = await storedRecord(first.id);
+    expect(record.version).toBe(1);
+    expect(record.pages).toBeUndefined();
+    expect((await loadBoardDrawing(first.id)).pages[0].commands).toEqual([stroke]);
+  });
+
+  it('saves several pages as version 2, with the open page only in the flat fields', async () => {
+    const other = { ...stroke, id: 'other' };
+    const view = { center: { x: 10, y: 20 }, zoom: 2 };
+    await saveBoardDrawing(
+      first.id,
+      state({
+        commands: [other],
+        pages: [page('page-1', [stroke], view), page('b')],
+        pageIndex: 1,
+      }),
+      0
+    );
+    const record = await storedRecord(first.id);
+    expect(record.version).toBe(2);
+    expect(record.pageIndex).toBe(1);
+    expect(record.pages).toEqual([page('page-1', [stroke], view), { id: 'b' }]);
+    const loaded = await loadBoardDrawing(first.id);
+    expect(loaded.commands).toEqual([other]);
+    expect(loaded.pages).toEqual([page('page-1', [stroke], view), page('b', [other])]);
+  });
+
+  it('keeps the other pages when only the open page is saved', async () => {
+    await saveBoardDrawing(
+      first.id,
+      state({ pages: [page('page-1', [stroke]), page('b')], pageIndex: 1 }),
+      0
+    );
+    const other = { ...stroke, id: 'other' };
+    await saveBoardDrawing(first.id, state({ commands: [other] }), 1);
+    const loaded = await loadBoardDrawing(first.id);
+    expect(loaded.pageIndex).toBe(1);
+    expect(loaded.pages.map((p) => p.commands)).toEqual([[stroke], [other]]);
+  });
+
+  it('clamps the page index and rejects broken page lists', () => {
+    const stored = toStoredBoard({ ...first, pages: [page('page-1'), page('b')], pageIndex: 1 });
+    expect(normalizeBoardDocument({ ...stored, pageIndex: 9 }).pageIndex).toBe(1);
+    expect(normalizeBoardDocument({ ...stored, pages: [] })).toBeNull();
+    expect(normalizeBoardDocument({ ...stored, pages: undefined })).toBeNull();
+    expect(normalizeBoardDocument({ ...stored, pages: [page('a'), page('a')] })).toBeNull();
+    expect(
+      normalizeBoardDocument({ ...stored, pages: [page('a', [{ type: 'nope' }]), { id: 'b' }] })
+    ).toBeNull();
+  });
+
+  it('a session saves when only the page list changes', async () => {
+    const session = createBoardSession(first, () => {});
+    session.update({ pages: [page('page-1'), page('b')], pageIndex: 1 });
+    expect(await session.save()).toBe(true);
+    expect((await loadBoardDrawing(first.id)).pages).toHaveLength(2);
+    expect(session.record.version).toBe(2);
   });
 });

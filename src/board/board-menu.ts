@@ -28,6 +28,7 @@ interface Options {
   setBackground(next: BoardBackground): void;
   theme(): ThemeChoice;
   setTheme(choice: ThemeChoice): void;
+  addPage(): void;
 }
 export function boardFileName(name: string, extension: string): string {
   return `${
@@ -459,6 +460,10 @@ export function createBoardMenu(options: Options) {
   menu.querySelector('#openBoards')?.addEventListener('click', () => {
     closeMenu();
     void showLibrary();
+  });
+  menu.querySelector('#addPage')?.addEventListener('click', () => {
+    closeMenu();
+    options.addPage();
   });
   menu.querySelector('#exportBoard')?.addEventListener('click', () => {
     void exportFile(false);
