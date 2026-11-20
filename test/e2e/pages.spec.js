@@ -16,7 +16,13 @@ async function drag(page, y) {
   await page.mouse.move(rect.x + 220, rect.y + y, { steps: 6 });
   await page.mouse.up();
 }
-const label = (page) => page.locator('#pageLabel [aria-hidden="true"]');
+const label = (page) => page.locator('#pageMenuButton');
+async function pageAction(page, id) {
+  await page.locator('#pageMenuButton').click();
+  await expect(page.locator('#pageMenu')).toBeVisible();
+  await page.locator(`#pageMenu #${id}`).click();
+}
+const pageIds = async (page) => (await board(page)).pages.map((p) => p.id);
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
@@ -99,7 +105,7 @@ test('the page control stays clear of the zoom bar on every screen size', async 
   const viewport = page.viewportSize();
   expect(pages.x).toBeGreaterThanOrEqual(0);
   expect(pages.y + pages.height).toBeLessThanOrEqual(viewport.height);
-  for (const id of ['prevPage', 'nextPage']) {
+  for (const id of ['prevPage', 'pageMenuButton', 'nextPage']) {
     const box = await page.locator(`#${id}`).boundingBox();
     expect(box.height).toBeGreaterThanOrEqual(44);
     const hit = await page.evaluate(
@@ -120,5 +126,118 @@ test('the page control follows the language', async ({ page, isMobile }) => {
   await expect(page.locator('#boardMenu #addPage')).toHaveText('Añadir página');
   await expect(page.locator('#pageNav')).toHaveAttribute('aria-label', 'Páginas');
   await expect(page.locator('#prevPage')).toHaveAttribute('aria-label', 'Página anterior');
-  await expect(page.locator('#pageLabel .sr-only')).toHaveText('Página 2 de 2');
+  await expect(page.locator('#pageLive')).toHaveText('Página 2 de 2');
+  await page.locator('#pageMenuButton').click();
+  await expect(page.locator('#pageMenu #duplicatePage')).toHaveText('Duplicar página');
+});
+
+test('Duplicate copies the page, and the copy changes on its own', async ({ page }) => {
+  await drag(page, 120);
+  await boardAction(page, 'addPage');
+  await page.locator('#prevPage').click();
+  await expect(label(page)).toHaveText('1 / 2');
+  await pageAction(page, 'duplicatePage');
+  await expect(label(page)).toHaveText('2 / 3');
+  await expect(page.locator('#status')).toContainText('Page 2 of 3 · duplicated');
+  // The copy keeps page 1's history, so Undo works on it.
+  await expect(page.locator('#undo')).toBeEnabled();
+  await drag(page, 220);
+  await expect.poll(async () => (await board(page)).commands.length).toBe(2);
+  await page.locator('#prevPage').click();
+  await expect.poll(async () => (await board(page)).pageIndex).toBe(0);
+  const saved = await board(page);
+  expect(saved.commands).toHaveLength(1);
+  expect(saved.pages[1].commands).toHaveLength(2);
+  expect(saved.pages[1].commands[0]).toEqual(saved.commands[0]);
+  expect(saved.pages[2].commands).toHaveLength(0);
+  expect(new Set(saved.pages.map((p) => p.id)).size).toBe(3);
+});
+
+test('Move earlier and Move later reorder pages and survive reload', async ({ page }) => {
+  await boardAction(page, 'addPage');
+  await boardAction(page, 'addPage');
+  await page.keyboard.press('PageUp');
+  await page.keyboard.press('PageUp');
+  await expect(label(page)).toHaveText('1 / 3');
+  await expect.poll(async () => (await board(page)).pageIndex).toBe(0);
+  const [a, b, c] = await pageIds(page);
+  await page.locator('#pageMenuButton').click();
+  await expect(page.locator('#movePageEarlier')).toBeDisabled();
+  await page.locator('#movePageLater').click();
+  await expect(label(page)).toHaveText('2 / 3');
+  await expect(page.locator('#status')).toContainText('Moved to page 2');
+  await expect.poll(() => pageIds(page)).toEqual([b, a, c]);
+  await pageAction(page, 'movePageLater');
+  await expect(label(page)).toHaveText('3 / 3');
+  await page.locator('#pageMenuButton').click();
+  await expect(page.locator('#movePageLater')).toBeDisabled();
+  await page.locator('#movePageEarlier').click();
+  await expect.poll(() => pageIds(page)).toEqual([b, a, c]);
+  await page.reload();
+  await expect(page.locator('#boards')).toBeEnabled();
+  await expect(label(page)).toHaveText('2 / 3');
+  expect(await pageIds(page)).toEqual([b, a, c]);
+});
+
+test('an empty page is deleted at once, and the control hides with one page left', async ({
+  page,
+}) => {
+  await drag(page, 120);
+  await boardAction(page, 'addPage');
+  await pageAction(page, 'deletePage');
+  await expect(page.locator('.board-library-panel')).toHaveCount(0);
+  await expect(page.locator('#pageNav')).toBeHidden();
+  await expect(page.locator('#status')).toContainText('Page deleted');
+  await expect.poll(async () => (await board(page)).pages.length).toBe(1);
+  expect((await board(page)).commands).toHaveLength(1);
+});
+
+test('deleting a page with drawing asks first', async ({ page }) => {
+  await boardAction(page, 'addPage');
+  await drag(page, 200);
+  await boardAction(page, 'addPage');
+  await drag(page, 120);
+  await page.locator('#prevPage').click();
+  await expect(label(page)).toHaveText('2 / 3');
+  await pageAction(page, 'deletePage');
+  const dialog = page.locator('.board-library-panel');
+  await expect(dialog).toContainText('Delete page 2? Its drawing will be lost.');
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(label(page)).toHaveText('2 / 3');
+
+  await pageAction(page, 'deletePage');
+  await dialog.getByRole('button', { name: 'Delete page' }).click();
+  await expect(dialog).toHaveCount(0);
+  // The next page opens with its own drawing.
+  await expect(label(page)).toHaveText('2 / 2');
+  await expect.poll(async () => (await board(page)).pages.length).toBe(2);
+  const saved = await board(page);
+  expect(saved.commands).toHaveLength(1);
+  expect(saved.commands[0].points[0].y).toBeCloseTo(120, 0);
+});
+
+test('the Page menu works from the keyboard and stays on screen', async ({ page }) => {
+  await boardAction(page, 'addPage');
+  await page.locator('#pageMenuButton').focus();
+  await page.keyboard.press('Enter');
+  const menu = page.locator('#pageMenu');
+  await expect(menu).toBeVisible();
+  await expect(page.locator('#addPageAfter')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#duplicatePage')).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(page.locator('#deletePage')).toBeFocused();
+  const box = await menu.boundingBox(),
+    control = await page.locator('#pageNav').boundingBox(),
+    viewport = page.viewportSize();
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+  expect(box.y + box.height).toBeLessThanOrEqual(control.y);
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(page.locator('#pageMenuButton')).toBeFocused();
+  await expect(label(page)).toHaveText('2 / 2');
 });

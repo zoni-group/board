@@ -361,7 +361,8 @@
           <canvas id="laserLayer" class="board-laser-layer" aria-hidden="true"></canvas>
           <nav id="pageNav" class="page-nav" aria-label="Pages" data-i18n-aria="pages" hidden>
             <button id="prevPage" type="button" aria-label="Previous page" data-i18n-aria="previousPage" data-i18n-title="previousPage" title="Previous page"><span class="btn-icon" aria-hidden="true"></span></button>
-            <span id="pageLabel" class="page-label" aria-live="polite"></span>
+            <button id="pageMenuButton" type="button" class="page-label" aria-haspopup="menu" aria-expanded="false" aria-controls="pageMenu"></button>
+            <span id="pageLive" class="sr-only" aria-live="polite"></span>
             <button id="nextPage" type="button" aria-label="Next page" data-i18n-aria="nextPage" data-i18n-title="nextPage" title="Next page"><span class="btn-icon" aria-hidden="true"></span></button>
           </nav>
           <div class="right-stack board-canvas-meta" aria-label="Status and attribution">

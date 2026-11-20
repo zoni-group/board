@@ -1249,13 +1249,21 @@ html.has-iro .color-popup-card{
   width: 100%;
   height: 100%;
 }
-.page-label {
-  min-width: 48px;
-  padding: 0 2px;
-  text-align: center;
+.page-nav button.page-label {
+  width: auto;
+  min-width: 56px;
+  padding: 0 8px;
+  border-radius: 8px;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+.page-nav button.page-label[aria-expanded='true'] {
+  background: var(--btn-hover-bg);
+}
+/* The Page menu reuses the Board menu's look and opens above the page number. */
+.board-menu.page-menu {
+  width: 220px;
 }
 /* On phones the zoom bar spans the bottom, so the pages sit one row above it. */
 @media (max-width: 500px) {

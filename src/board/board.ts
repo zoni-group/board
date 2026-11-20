@@ -706,8 +706,8 @@ for (const [id, icon] of [
     resetScene();
   }
   /** Leaves the open page: finishes the active tool and keeps its drawing, history and view. */
-  function showPage(index: number, { announce = true } = {}) {
-    if (!boardReady || index < 0 || index >= pages.length || index === pageIndex) return false;
+  /** Finishes the active tool on the open page. False when a tool can't finish yet. */
+  function finishPageTools() {
     if (!contentTool.finish() || !textTool.finish()) return false;
     contentTool.closePicker();
     shapeTool.flushStyle();
@@ -719,33 +719,81 @@ for (const [id, icon] of [
     finishStroke({ commit: false });
     window.clearTimeout(viewportTimer);
     viewportDirty = false;
+    return true;
+  }
+  /** Stores the open page's drawing, history and view back into the page list. */
+  function leavePage() {
+    if (!finishPageTools()) return false;
     pages[pageIndex] = {
       id: pages[pageIndex].id,
       ...createBoardDrawingSnapshot(),
       viewport: viewport ? structuredClone(viewport) : null,
     };
+    return true;
+  }
+  function enterPage(index: number, status = 'pageOf') {
     pageIndex = index;
     loadPage(pages[index]);
     syncHistoryButtons();
     syncViewportControls();
     redrawCanvas();
     pageNav.sync(pageIndex, pages.length);
-    if (announce) setStatus(t('pageOf', { page: pageIndex + 1, count: pages.length }));
+    setStatus(t(status, { page: pageIndex + 1, count: pages.length }));
     void queueBoardPersistence();
+  }
+  function showPage(index: number) {
+    if (!boardReady || index < 0 || index >= pages.length || index === pageIndex) return false;
+    if (!leavePage()) return false;
+    enterPage(index);
     return true;
   }
-  function addPage() {
-    if (!boardReady || pages.length >= MAX_PAGES) return;
-    const at = pageIndex + 1;
-    pages.splice(at, 0, {
-      id: crypto.randomUUID(),
-      commands: [],
-      redoCommands: [],
-      viewport: null,
-    });
-    // Keep the open page's index pointing at it until showPage stores it.
-    if (!showPage(at)) pages.splice(at, 1);
+  function insertPage(page: Omit<BoardPage, 'id'>, status: string) {
+    if (!boardReady || pages.length >= MAX_PAGES || !leavePage()) return;
+    pages.splice(pageIndex + 1, 0, { ...page, id: crypto.randomUUID() });
+    enterPage(pageIndex + 1, status);
     canvas.focus({ preventScroll: true });
+  }
+  function addPage() {
+    insertPage({ commands: [], redoCommands: [], viewport: null }, 'pageOf');
+  }
+  /** The copy keeps the drawing, undo history and view; object ids only need to be unique per page. */
+  function duplicatePage() {
+    if (!boardReady || !leavePage()) return;
+    // insertPage gives the copy a new id.
+    insertPage(structuredClone(pages[pageIndex]), 'pageDuplicated');
+  }
+  function movePage(delta: -1 | 1) {
+    const target = pageIndex + delta;
+    if (!boardReady || target < 0 || target >= pages.length || !leavePage()) return;
+    [pages[pageIndex], pages[target]] = [pages[target], pages[pageIndex]];
+    pageIndex = target;
+    pageNav.sync(pageIndex, pages.length);
+    setStatus(t('pageMoved', { page: pageIndex + 1 }));
+    void queueBoardPersistence();
+  }
+  function removeOpenPage() {
+    if (!boardReady || pages.length <= 1 || !finishPageTools()) return;
+    pages.splice(pageIndex, 1);
+    enterPage(Math.min(pageIndex, pages.length - 1), 'pageDeleted');
+    canvas.focus({ preventScroll: true });
+  }
+  /** Deletes the open page; asks first when it has drawing or undo history. */
+  function deletePage() {
+    if (!boardReady || pages.length <= 1) return;
+    if (!commandHistory.length && !redoHistory.length) {
+      removeOpenPage();
+      return;
+    }
+    boardMenu.confirm({
+      title: 'deletePage',
+      question: t('deletePageQuestion', { page: pageIndex + 1 }),
+      action: 'deletePage',
+      returnFocus: canvas,
+      run() {
+        boardMenu.dismissPanel();
+        removeOpenPage();
+      },
+    });
   }
   async function activateBoard(board: BoardDocument) {
     boardReady = false;
@@ -826,6 +874,10 @@ for (const [id, icon] of [
   const pageNav = createPageNav({
     nav: requireElement('pageNav', 'nav'),
     go: (index) => showPage(index),
+    add: addPage,
+    duplicate: duplicatePage,
+    move: movePage,
+    remove: deletePage,
   });
 
   function pushHistoryCommand(command: BoardCommand, { clearRedo = true } = {}) {
@@ -1666,6 +1718,7 @@ for (const [id, icon] of [
   document.addEventListener('keydown', (event) => {
     if (event.defaultPrevented || event.isComposing) return;
     if (boardMenu.handleKey(event)) return;
+    if (pageNav.handleKey(event)) return;
     if (penPicker.handleKey(event)) return;
     if (selectPicker.handleKey(event)) return;
     if (contentTool.handleKey(event)) return;
