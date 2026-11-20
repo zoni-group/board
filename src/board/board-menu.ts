@@ -15,6 +15,16 @@ import {
 } from './storage.ts';
 import type { BoardDocument, BoardSummary } from './storage.ts';
 
+export interface ConfirmRequest {
+  /** Translation key of the panel title. */
+  title: string;
+  question: string;
+  /** Translation key of the destructive button. */
+  action: string;
+  run(): void;
+  /** Where focus goes when the panel is cancelled; the Board button by default. */
+  returnFocus?: HTMLElement;
+}
 interface Options {
   button: HTMLButtonElement;
   menu: HTMLElement;
@@ -28,6 +38,8 @@ interface Options {
   setBackground(next: BoardBackground): void;
   theme(): ThemeChoice;
   setTheme(choice: ThemeChoice): void;
+  addPage(): void;
+  freeUpSpace(): Promise<number | null>;
 }
 export function boardFileName(name: string, extension: string): string {
   return `${
@@ -42,6 +54,7 @@ export function createBoardMenu(options: Options) {
   const { button, menu } = options;
   let panel: HTMLElement | null = null,
     beforeDismiss: (() => Promise<void>) | null = null,
+    returnFocus: HTMLElement | null = null,
     working = false,
     controller: AbortController | null = null;
   let filesModule: Promise<typeof import('./board-files.ts')> | undefined;
@@ -87,7 +100,8 @@ export function createBoardMenu(options: Options) {
     panel?.remove();
     panel = null;
     closeMenu();
-    button.focus({ preventScroll: true });
+    (returnFocus ?? button).focus({ preventScroll: true });
+    returnFocus = null;
   }
   function control(key: string, run: () => void) {
     const b = document.createElement('button');
@@ -111,6 +125,7 @@ export function createBoardMenu(options: Options) {
   }
   function createPanel(key: string) {
     beforeDismiss = null;
+    returnFocus = null;
     panel?.remove();
     closeMenu();
     panel = document.createElement('section');
@@ -191,36 +206,47 @@ export function createBoardMenu(options: Options) {
       labels();
     });
   }
-  function confirmDelete(board: BoardSummary) {
+  /** A question with a destructive action and Cancel, which keeps focus. */
+  function confirm(request: ConfirmRequest) {
     if (working) return;
-    const { body, actions } = createPanel('deleteBoard');
+    const { body, actions } = createPanel(request.title);
+    returnFocus = request.returnFocus ?? null;
     const text = document.createElement('p');
-    text.textContent = t('deleteBoardQuestion', { name: board.name });
+    text.textContent = request.question;
     body.append(text);
-    const remove = control('deleteBoard', () => {
-      let refresh = false;
-      void run(async () => {
-        // Deletion must remain available to free storage while current edits are unsaved.
-        if (!(await options.prepare(false))) return;
-        const next = await deleteBoard(board.id, t('boardDefaultName'));
-        if (board.id === options.current().id) {
-          dismissPanel();
-          await options.activate(next);
-          labels();
-        } else {
-          dismissPanel();
-          refresh = true;
-        }
-        options.status(t('boardDeletedStatus'));
-      }).then(() => {
-        if (refresh) void showLibrary();
-      });
-    });
-    remove.className = 'destructive';
-    actions.prepend(remove);
+    const proceed = control(request.action, request.run);
+    proceed.className = 'destructive';
+    actions.prepend(proceed);
     position();
     if (actions.lastElementChild instanceof HTMLElement)
       actions.lastElementChild.focus({ preventScroll: true });
+  }
+  function confirmDelete(board: BoardSummary) {
+    confirm({
+      title: 'deleteBoard',
+      question: t('deleteBoardQuestion', { name: board.name }),
+      action: 'deleteBoard',
+      run: () => deleteAndRefresh(board),
+    });
+  }
+  function deleteAndRefresh(board: BoardSummary) {
+    let refresh = false;
+    void run(async () => {
+      // Deletion must remain available to free storage while current edits are unsaved.
+      if (!(await options.prepare(false))) return;
+      const next = await deleteBoard(board.id, t('boardDefaultName'));
+      if (board.id === options.current().id) {
+        dismissPanel();
+        await options.activate(next);
+        labels();
+      } else {
+        dismissPanel();
+        refresh = true;
+      }
+      options.status(t('boardDeletedStatus'));
+    }).then(() => {
+      if (refresh) void showLibrary();
+    });
   }
   async function showLibrary() {
     if (working) return;
@@ -349,6 +375,7 @@ export function createBoardMenu(options: Options) {
       setBackground: options.setBackground,
       theme: options.theme,
       setTheme: options.setTheme,
+      freeUpSpace: options.freeUpSpace,
     });
     beforeDismiss = settings.commit;
     const done = control('doneText', dismiss);
@@ -460,6 +487,10 @@ export function createBoardMenu(options: Options) {
     closeMenu();
     void showLibrary();
   });
+  menu.querySelector('#addPage')?.addEventListener('click', () => {
+    closeMenu();
+    options.addPage();
+  });
   menu.querySelector('#exportBoard')?.addEventListener('click', () => {
     void exportFile(false);
   });
@@ -538,6 +569,9 @@ export function createBoardMenu(options: Options) {
   return {
     labels,
     dismiss,
+    /** Closes the confirm panel without returning focus to the Board button. */
+    dismissPanel,
+    confirm,
     closeMenu,
     isBusy: () => working || Boolean(panel),
     isWorking: () => working,

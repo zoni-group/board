@@ -23,6 +23,8 @@ export interface SettingsOptions {
   setBackground(next: BoardBackground): void;
   theme(): ThemeChoice;
   setTheme(choice: ThemeChoice): void;
+  /** Drops history before each Clear on every board and deletes unused media; bytes freed. */
+  freeUpSpace(): Promise<number | null>;
 }
 
 const PATTERN_LABELS: Record<BackgroundPattern, string> = {
@@ -128,10 +130,14 @@ function section(titleKey: string, ...children: HTMLElement[]) {
   return node;
 }
 
-async function fillStorage(target: HTMLElement) {
+async function fillStorage(target: HTMLElement, options: SettingsOptions, message?: HTMLElement) {
   const storage = typeof navigator !== 'undefined' ? navigator.storage : undefined;
   if (!storage?.estimate) {
-    target.replaceChildren(element('p', 'settings-note', 'storageDetailsUnavailable'));
+    target.replaceChildren(
+      element('p', 'settings-note', 'storageDetailsUnavailable'),
+      freeUpSpace(target, options),
+      ...(message ? [message] : [])
+    );
     return;
   }
   const [estimate, boards, persisted] = await Promise.all([
@@ -185,8 +191,53 @@ async function fillStorage(target: HTMLElement) {
     });
     keep.append(element('p', 'settings-note', 'storagePersistHint'), request);
   }
-  nodes.push(keep);
+  nodes.push(keep, freeUpSpace(target, options));
+  if (message) nodes.push(message);
   target.replaceChildren(...nodes);
+}
+
+function button(key: string, className = 'settings-action') {
+  const node = element('button', className, key);
+  node.type = 'button';
+  return node;
+}
+/** Free up space: one tap asks, the second runs it, then the storage figures refresh. */
+function freeUpSpace(target: HTMLElement, options: SettingsOptions) {
+  const block = element('div', 'settings-free');
+  const start = button('freeUpSpace');
+  start.id = 'freeUpSpace';
+  function initial() {
+    block.replaceChildren(element('p', 'settings-note', 'freeUpSpaceHint'), start);
+  }
+  start.addEventListener('click', () => {
+    const confirm = button('freeUpSpace', 'settings-action destructive'),
+      cancel = button('cancelText');
+    confirm.id = 'confirmFreeUpSpace';
+    const row = element('div', 'settings-free-actions');
+    row.append(confirm, cancel);
+    block.replaceChildren(element('p', 'settings-note', 'freeUpSpaceQuestion'), row);
+    cancel.addEventListener('click', () => {
+      initial();
+      start.focus({ preventScroll: true });
+    });
+    confirm.addEventListener('click', () => {
+      confirm.disabled = cancel.disabled = true;
+      void options
+        .freeUpSpace()
+        .then((freed) =>
+          freed ? t('spaceFreed', { size: formatBytes(freed) }) : t('spaceFreedNone')
+        )
+        .catch(() => t('spaceFreeFailed'))
+        .then((text) => {
+          const message = element('p', 'settings-note settings-ok settings-free-result');
+          message.textContent = text;
+          return fillStorage(target, options, message);
+        });
+    });
+    cancel.focus({ preventScroll: true });
+  });
+  initial();
+  return block;
 }
 
 /**
@@ -275,7 +326,7 @@ export function renderSettings(body: HTMLElement, options: SettingsOptions) {
 
   const storage = element('div', 'settings-storage');
   storage.setAttribute('aria-live', 'polite');
-  void fillStorage(storage);
+  void fillStorage(storage, options);
 
   body.replaceChildren(
     section('boardLabel', field('boardName', name)),

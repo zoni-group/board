@@ -48,7 +48,7 @@ test.beforeEach(async ({ page }) => {
 test('opens Settings from the Board menu without adding toolbar buttons', async ({ page }) => {
   await expect(page.locator('.board-action-strip > button')).toHaveCount(7);
   await page.locator('#boards').click();
-  await expect(page.locator('#boardMenu .menu-item')).toHaveCount(8);
+  await expect(page.locator('#boardMenu .menu-item')).toHaveCount(9);
   await page.keyboard.press('End');
   await expect(page.locator('#clear')).toBeFocused();
   await page.keyboard.press('ArrowUp');
@@ -57,7 +57,7 @@ test('opens Settings from the Board menu without adding toolbar buttons', async 
   const panel = page.locator('.board-settings-panel');
   await expect(panel).toBeVisible();
   await expect(panel).toHaveAttribute('aria-modal', 'true');
-  await expect(panel.locator('h3')).toHaveText(['Board', 'Page', 'Appearance', 'Storage']);
+  await expect(panel.locator('h3')).toHaveText(['Board', 'Paper', 'Appearance', 'Storage']);
   await expect(page.locator('#settingsBoardName')).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(panel).toHaveCount(0);
@@ -165,4 +165,5 @@ test('Settings follow the language toggle', async ({ page, isMobile }) => {
   await openSettings(page);
   await expect(page.locator('#boardPanelTitle')).toHaveText('Ajustes');
   await expect(page.locator('.settings-patterns')).toContainText('Cuadrícula');
+  await expect(page.locator('#freeUpSpace')).toHaveText('Liberar espacio');
 });

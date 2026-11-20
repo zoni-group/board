@@ -122,6 +122,57 @@ describe('current portable board format', () => {
     ).toBe('movie');
     expect((await getBoardLibrary()).boards).toHaveLength(1);
   });
+  it('exports every page and remaps media that only a closed page uses', async () => {
+    const imageId = await saveAsset(first.id, {
+      kind: 'image',
+      width: 20,
+      height: 10,
+      blob: new Blob(['page two'], { type: 'image/png' }),
+    });
+    const image = { ...imageObject(), assetId: imageId };
+    const stroke = {
+      type: 'stroke',
+      tool: 'pen',
+      id: 'one',
+      points: [{ x: 1, y: 2 }],
+      size: 4,
+      inkRaw: '#111827',
+    };
+    const board = await saveBoardDrawing(
+      first.id,
+      {
+        commands: [stroke],
+        redoCommands: [],
+        viewport: null,
+        draft: null,
+        pages: [
+          { id: 'page-1', commands: [], redoCommands: [], viewport: null },
+          {
+            id: 'two',
+            commands: [{ type: 'content-set', object: image }],
+            redoCommands: [],
+            viewport: { center: { x: 5, y: 6 }, zoom: 1.5 },
+          },
+        ],
+        pageIndex: 0,
+      },
+      0
+    );
+    const blob = await exportBoards([board], board.id);
+    const manifest = JSON.parse(
+      strFromU8(unzipSync(new Uint8Array(await blob.arrayBuffer()))['manifest.json'])
+    );
+    expect(manifest.boards[0].version).toBe(2);
+    expect(manifest.boards[0].pages[0]).toEqual({ id: 'page-1' });
+    const prepared = await readBoardArchive(blob),
+      copy = prepared.boards[0];
+    expect(copy.commands).toEqual([stroke]);
+    expect(copy.pages).toHaveLength(2);
+    expect(copy.pages[1].viewport).toEqual({ center: { x: 5, y: 6 }, zoom: 1.5 });
+    const newId = copy.pages[1].commands[0].object.assetId;
+    expect(newId).not.toBe(imageId);
+    expect(prepared.assets.map((asset) => asset.id)).toEqual([newId]);
+  });
   it('exports media referenced only inside a batch and remaps it on import', async () => {
     const assetId = await saveAsset(first.id, {
       kind: 'image',

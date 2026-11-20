@@ -87,6 +87,14 @@ export interface TableObject {
   borderRaw: string;
 }
 export type ContentObject = ImageObject | VideoObject | TableObject;
+/** The stored media record an object shows, if any. */
+export function assetIdFor(object: ContentObject): string | null {
+  return object.kind === 'image'
+    ? object.assetId
+    : object.kind === 'video' && object.source.kind === 'local'
+      ? object.source.assetId
+      : null;
+}
 export type ContentCommand =
   | { type: 'content-set'; object: ContentObject }
   | { type: 'content-delete'; ids: string[] };

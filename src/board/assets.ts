@@ -1,7 +1,8 @@
 import { getAssetRecord, putAssetRecord, deleteAssetRecord } from './storage.ts';
 import type { BinaryAsset } from './storage.ts';
 import type { ContentObject } from './model.ts';
-import { IMAGE_TYPES, VIDEO_TYPES } from './model.ts';
+import { IMAGE_TYPES, VIDEO_TYPES, assetIdFor } from './model.ts';
+export { assetIdFor };
 export { IMAGE_TYPES, VIDEO_TYPES } from './model.ts';
 
 export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
@@ -22,13 +23,6 @@ function storedBlob(value: unknown): Blob | null {
     : null;
 }
 
-export function assetIdFor(object: ContentObject): string | null {
-  return object.kind === 'image'
-    ? object.assetId
-    : object.kind === 'video' && object.source.kind === 'local'
-      ? object.source.assetId
-      : null;
-}
 export async function readAsset(id: string): Promise<BoardAsset | null> {
   const value = await getAssetRecord(id).catch(() => undefined);
   if (!value || typeof value !== 'object') return null;

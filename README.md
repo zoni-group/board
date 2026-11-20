@@ -357,12 +357,29 @@ seven buttons; navigation remains separate and visible.
 - **Save PNG** exports the current board as an image named after the board. Editable exports keep
   objects and history; PNGs are flattened images.
 
+## Pages
+
+A board can hold a lesson as a series of pages. **Boards → Add page** adds a blank page after the
+current one. Once a board has two or more pages, a small **‹ 2 / 5 ›** control appears at the
+bottom left (one row above the zoom bar on phones); **PageUp**/**PageDown** also change pages, so
+presenter clickers work. Tap the page number for the **Page menu**:
+
+- **Add page** and **Duplicate page** insert after the current page and open it. A duplicate copies
+  the drawing, its Undo history and the view.
+- **Move earlier** / **Move later** swap the page with its neighbor.
+- **Delete page** removes the page at once when it is empty and asks first when it has drawing or
+  history. With one page left, the control hides again.
+
+Each page has its own drawing, Undo history and view; the board name and paper are shared. Page
+actions are not Undo steps. **Save PNG** exports the current page, and board exports include every
+page.
+
 ## Settings
 
 **Boards → Settings…** opens one panel; it adds no toolbar buttons. Every change applies at once.
 
 - **Board:** rename the open board (Enter, leaving the field, or Done saves it).
-- **Page:** pattern (**Blank**, **Grid**, **Lined**, **Dotted**), spacing (**Small**, **Medium**,
+- **Paper:** pattern (**Blank**, **Grid**, **Lined**, **Dotted**), spacing (**Small**, **Medium**,
   **Large**: 16, 32, 64 board units) and paper color (**Auto** follows the theme; **White**,
   **Cream**, **Green chalkboard**, **Blackboard**). The paper is saved per board, travels in
   `.zoniboard` exports, pans and zooms with the drawing, and is included in **Save PNG**. It is a
@@ -372,7 +389,9 @@ seven buttons; navigation remains separate and visible.
 - **Storage:** how much browser storage the app uses (`navigator.storage.estimate()`), the number
   of boards, and **Keep boards on this device**, which asks the browser not to clear the boards when
   space runs low (`navigator.storage.persist()`). Browsers decide whether to grant it; exporting
-  remains the reliable backup.
+  remains the reliable backup. **Free up space** asks first, then removes the Undo history from
+  before each page's last Clear and the Redo stacks on every board, deletes the images and videos
+  nothing uses anymore, and reports how much space was freed. The drawings stay as they are.
 
 Transfer a `.zoniboard` file to another computer/browser and choose Import boards there. Exports
 are snapshots: later edits continue saving in the browser, so export again to update the file.
@@ -390,7 +409,15 @@ Large libraries can be exported one board at a time.
 
 - One database, `zoni-board-library` version 1, has `boards`, `assets`, and `meta` stores.
 - Each board document stores its metadata, drawing/redo commands, viewport, recoverable text
-  draft, and page background. A missing or invalid background loads as blank paper with Auto color. The catalog lists board summaries without loading complete drawings.
+  draft, and paper background. The open page uses the flat drawing fields; boards with several
+  pages also store the others in `pages` with `pageIndex` and are written as document version 2,
+  while one-page boards keep the version 1 layout.
+- Images and videos are separate `assets` records tagged with their board. A record stays while any
+  page's Undo or Redo history refers to it, so Clear and Undo can always bring it back. A moment
+  after a page is deleted, after new drawing replaces a Redo stack that held media, and when a
+  board opens, the app deletes that board's media that no history refers to anymore. It decides
+  from the saved board and never during a media insert. **Settings → Storage → Free up space**
+  also frees media kept only by history from before a Clear. A missing or invalid background loads as blank paper with Auto color. The catalog lists board summaries without loading complete drawings.
 - Atomic transactions update board documents and catalog entries together; a failed transaction
   preserves the last successful save. Imports publish boards and assets in one transaction.
 - Each board has its own save queue and revision; stale or deleted-board writes are rejected.

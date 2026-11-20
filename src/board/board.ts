@@ -4,11 +4,18 @@ import {
   initializeLibrary,
   createBoardSession,
   emptyBoard,
+  MAX_PAGES,
+  boardAssetIds,
+  compactBoardHistory,
+  compactStoredBoard,
+  listBoards,
+  pruneBoardAssets,
   updateBoardBackground,
 } from './storage.ts';
-import type { BoardDocument, BoardSession } from './storage.ts';
+import type { BoardDocument, BoardPage, BoardSession } from './storage.ts';
+import { createPageNav } from './page-nav.ts';
 import { createBoardMenu, boardFileName } from './board-menu.ts';
-import { cloneCommand, clonePoint } from './model.ts';
+import { cloneCommand, clonePoint, expandCommands } from './model.ts';
 import { createTextTool } from './text-tool.ts';
 import { createShapeTool } from './shape-tool.ts';
 import { createSelection } from './selection.ts';
@@ -86,6 +93,7 @@ import {
   IconImage,
   IconSettings,
   IconTrash,
+  IconAddPage,
 } from '../icons.ts';
 
 interface ToolOptions {
@@ -141,6 +149,7 @@ applyButtonIcon(requireElement('fitDrawing', 'button'), IconFit);
 for (const [id, icon] of [
   ['newBoard', IconPlus],
   ['openBoards', IconFolder],
+  ['addPage', IconAddPage],
   ['exportBoard', IconExport],
   ['exportAllBoards', IconExportAll],
   ['importBoards', IconImport],
@@ -339,6 +348,9 @@ for (const [id, icon] of [
   let sceneLast: BoardCommand | undefined;
   const commandHistory: BoardCommand[] = [];
   const redoHistory: BoardCommand[] = [];
+  // The open page lives in commandHistory, redoHistory and viewport; its entry here is stale.
+  let pages: BoardPage[] = [];
+  let pageIndex = 0;
   const assets = createAssetCache(redrawCanvas);
   const selection = createSelection({
     canvas,
@@ -666,11 +678,16 @@ for (const [id, icon] of [
     };
   }
 
+  /** The page list to save: a new array, so stored pages never change under the session. */
+  function pagesState(): Pick<BoardDocument, 'pages' | 'pageIndex'> {
+    return { pages: pages.slice(), pageIndex };
+  }
   function currentDocument(): BoardDocument {
     return {
       ...(boardSession?.snapshot() ?? structuredClone(bootstrapBoard)),
       ...createBoardDrawingSnapshot(),
       viewport: viewport ? structuredClone(viewport) : null,
+      ...(boardSession ? structuredClone(pagesState()) : {}),
     };
   }
   function storageFailure(error: unknown) {
@@ -679,8 +696,163 @@ for (const [id, icon] of [
   }
   function queueBoardPersistence() {
     if (!boardSession) return Promise.resolve(false);
-    boardSession.update({ ...createBoardDrawingSnapshot(), viewport });
+    boardSession.update({ ...createBoardDrawingSnapshot(), viewport, ...pagesState() });
     return boardSession.save();
+  }
+  function resetScene() {
+    scene = null;
+    sceneLength = -1;
+    sceneLast = undefined;
+  }
+  function loadPage(page: Pick<BoardPage, 'commands' | 'redoCommands' | 'viewport'>) {
+    commandHistory.splice(0, commandHistory.length, ...page.commands.map(cloneCommand));
+    redoHistory.splice(0, redoHistory.length, ...page.redoCommands.map(cloneCommand));
+    viewport = page.viewport ? structuredClone(page.viewport) : initialViewport(boardSize());
+    resetScene();
+  }
+  /** Leaves the open page: finishes the active tool and keeps its drawing, history and view. */
+  /** Finishes the active tool on the open page. False when a tool can't finish yet. */
+  function finishPageTools() {
+    if (!contentTool.finish() || !textTool.finish()) return false;
+    contentTool.closePicker();
+    shapeTool.flushStyle();
+    shapeTool.cancel();
+    selection.flushStyle();
+    selection.cancel();
+    selection.clear();
+    navigation.cancel();
+    finishStroke({ commit: false });
+    window.clearTimeout(viewportTimer);
+    viewportDirty = false;
+    return true;
+  }
+  /** Stores the open page's drawing, history and view back into the page list. */
+  function leavePage() {
+    if (!finishPageTools()) return false;
+    pages[pageIndex] = {
+      id: pages[pageIndex].id,
+      ...createBoardDrawingSnapshot(),
+      viewport: viewport ? structuredClone(viewport) : null,
+    };
+    return true;
+  }
+  function enterPage(index: number, status = 'pageOf') {
+    pageIndex = index;
+    loadPage(pages[index]);
+    syncHistoryButtons();
+    syncViewportControls();
+    redrawCanvas();
+    pageNav.sync(pageIndex, pages.length);
+    setStatus(t(status, { page: pageIndex + 1, count: pages.length }));
+    void queueBoardPersistence();
+  }
+  function showPage(index: number) {
+    if (!boardReady || index < 0 || index >= pages.length || index === pageIndex) return false;
+    if (!leavePage()) return false;
+    enterPage(index);
+    return true;
+  }
+  function insertPage(page: Omit<BoardPage, 'id'>, status: string) {
+    if (!boardReady || pages.length >= MAX_PAGES || !leavePage()) return;
+    pages.splice(pageIndex + 1, 0, { ...page, id: crypto.randomUUID() });
+    enterPage(pageIndex + 1, status);
+    canvas.focus({ preventScroll: true });
+  }
+  function addPage() {
+    insertPage({ commands: [], redoCommands: [], viewport: null }, 'pageOf');
+  }
+  /** The copy keeps the drawing, undo history and view; object ids only need to be unique per page. */
+  function duplicatePage() {
+    if (!boardReady || !leavePage()) return;
+    // insertPage gives the copy a new id.
+    insertPage(structuredClone(pages[pageIndex]), 'pageDuplicated');
+  }
+  function movePage(delta: -1 | 1) {
+    const target = pageIndex + delta;
+    if (!boardReady || target < 0 || target >= pages.length || !leavePage()) return;
+    [pages[pageIndex], pages[target]] = [pages[target], pages[pageIndex]];
+    pageIndex = target;
+    pageNav.sync(pageIndex, pages.length);
+    setStatus(t('pageMoved', { page: pageIndex + 1 }));
+    void queueBoardPersistence();
+  }
+  function removeOpenPage() {
+    if (!boardReady || pages.length <= 1 || !finishPageTools()) return;
+    pages.splice(pageIndex, 1);
+    enterPage(Math.min(pageIndex, pages.length - 1), 'pageDeleted');
+    canvas.focus({ preventScroll: true });
+    scheduleAssetCleanup();
+  }
+  let cleanupTimer: number | undefined;
+  /**
+   * Deletes the open board's media that no page's history refers to anymore. It runs a moment
+   * after the change and never during a media insert. It never saves the board itself, so it
+   * can't cause a save, or a save error, of its own.
+   */
+  function scheduleAssetCleanup(delay = 2000) {
+    window.clearTimeout(cleanupTimer);
+    cleanupTimer = window.setTimeout(() => void cleanUpAssets(), delay);
+  }
+  async function cleanUpAssets() {
+    if (!boardReady || !boardSession || contentTool.isEditing()) {
+      if (boardSession) scheduleAssetCleanup();
+      return;
+    }
+    const session = boardSession;
+    // Wait for a save in progress, but don't start one.
+    await session.flush();
+    if (session !== boardSession || contentTool.isEditing()) return;
+    // Media the saved board or this tab's unsaved state still uses are both kept.
+    await pruneBoardAssets(session.record.id, boardAssetIds(currentDocument())).catch(() => 0);
+  }
+  /**
+   * Settings → Storage → Free up space: drops the history before each page's last Clear and the
+   * redo stacks on every board, then deletes the media nothing uses. Returns the bytes freed,
+   * or null when the browser can't estimate storage.
+   */
+  async function freeUpSpace(): Promise<number | null> {
+    if (!boardReady || !boardSession || !(await prepareBoard(true))) throw new Error('busy');
+    const estimate = async () =>
+      navigator.storage?.estimate
+        ? ((await navigator.storage.estimate().catch(() => null))?.usage ?? null)
+        : null;
+    const before = await estimate();
+    const open = compactBoardHistory({ commands: commandHistory, redoCommands: redoHistory });
+    if (open) {
+      commandHistory.splice(0, commandHistory.length, ...open.commands);
+      redoHistory.length = 0;
+    }
+    pages = pages.map((page, index) =>
+      index === pageIndex ? page : (compactBoardHistory(page) ?? page)
+    );
+    resetScene();
+    syncHistoryButtons();
+    redrawCanvas();
+    const session = boardSession;
+    if (!(await queueBoardPersistence()) || !(await session.flush())) throw new Error('save');
+    await pruneBoardAssets(session.record.id);
+    for (const board of await listBoards())
+      if (board.id !== session.record.id) await compactStoredBoard(board.id);
+    const after = await estimate();
+    return before === null || after === null ? null : Math.max(0, before - after);
+  }
+  /** Deletes the open page; asks first when it has drawing or undo history. */
+  function deletePage() {
+    if (!boardReady || pages.length <= 1) return;
+    if (!commandHistory.length && !redoHistory.length) {
+      removeOpenPage();
+      return;
+    }
+    boardMenu.confirm({
+      title: 'deletePage',
+      question: t('deletePageQuestion', { page: pageIndex + 1 }),
+      action: 'deletePage',
+      returnFocus: canvas,
+      run() {
+        boardMenu.dismissPanel();
+        removeOpenPage();
+      },
+    });
   }
   async function activateBoard(board: BoardDocument) {
     boardReady = false;
@@ -692,19 +864,16 @@ for (const [id, icon] of [
     textTool.reset();
     shapeTool.activate(false);
     selection.clear();
-    commandHistory.splice(0, commandHistory.length, ...board.commands.map(cloneCommand));
-    redoHistory.splice(0, redoHistory.length, ...board.redoCommands.map(cloneCommand));
     boardSession = createBoardSession(board, (error) => {
       if (boardSession?.record.id === board.id) storageFailure(error);
     });
-    viewport = board.viewport ?? initialViewport(boardSize());
+    pages = structuredClone(board.pages);
+    pageIndex = board.pageIndex;
+    loadPage(board);
     boardBackground = { ...board.background };
     canvasFrame?.style.setProperty('--board-canvas-bg', currentCanvasBg());
     renderSwatches();
     applyInk();
-    scene = null;
-    sceneLength = -1;
-    sceneLast = undefined;
     assets.clear();
     tool = 'pen';
     if (!board.viewport) await queueBoardPersistence();
@@ -714,6 +883,7 @@ for (const [id, icon] of [
     syncViewportControls();
     setActive({ announce: false });
     redrawCanvas();
+    pageNav.sync(pageIndex, pages.length);
     boardMenu?.labels();
     setStatus(t('ready'));
     if (textTool.recover()) {
@@ -721,6 +891,8 @@ for (const [id, icon] of [
       setActive({ announce: false });
     }
     canvas.focus({ preventScroll: true });
+    // Media left behind by earlier versions or by an interrupted session.
+    scheduleAssetCleanup();
   }
   async function prepareBoard(requireSave: boolean): Promise<boolean> {
     if (!contentTool.finish() || !textTool.finish()) return false;
@@ -758,15 +930,30 @@ for (const [id, icon] of [
     },
     theme: storedTheme,
     setTheme: (choice) => setTheme(choice),
+    addPage,
+    freeUpSpace,
+  });
+  const pageNav = createPageNav({
+    nav: requireElement('pageNav', 'nav'),
+    go: (index) => showPage(index),
+    add: addPage,
+    duplicate: duplicatePage,
+    move: movePage,
+    remove: deletePage,
   });
 
   function pushHistoryCommand(command: BoardCommand, { clearRedo = true } = {}) {
     const nextCommand = cloneCommand(command);
     commandHistory.push(nextCommand);
-    if (clearRedo) {
-      redoHistory.length = 0;
-    }
+    if (clearRedo) dropRedo();
     syncHistoryButtons();
+  }
+  /** New drawing replaces the redo stack; media only it used can then be deleted. */
+  function dropRedo() {
+    if (!redoHistory.length) return;
+    const hadMedia = [...expandCommands(redoHistory)].some((c) => c.type === 'content-set');
+    redoHistory.length = 0;
+    if (hadMedia) scheduleAssetCleanup();
   }
 
   // Make sure ink stays readable on current canvas background.
@@ -1229,7 +1416,7 @@ for (const [id, icon] of [
     finishStroke({ commit: false });
 
     if (commandHistory.length === 0) {
-      redoHistory.length = 0;
+      dropRedo();
       redrawCanvas();
       syncHistoryButtons();
       queueBoardPersistence();
@@ -1342,7 +1529,11 @@ for (const [id, icon] of [
 
   async function exportCanvasAsPng() {
     const scene = getScene();
-    const fileName = boardFileName(boardSession?.record.name ?? t('boardDefaultName'), 'png');
+    const name = boardSession?.record.name ?? t('boardDefaultName');
+    const fileName = boardFileName(
+      pages.length > 1 ? `${name} - ${t('pageFile', { page: pageIndex + 1 })}` : name,
+      'png'
+    );
     const exportAssets = createAssetCache(() => {});
     try {
       await exportAssets.prepare(scene.content);
@@ -1594,6 +1785,7 @@ for (const [id, icon] of [
   document.addEventListener('keydown', (event) => {
     if (event.defaultPrevented || event.isComposing) return;
     if (boardMenu.handleKey(event)) return;
+    if (pageNav.handleKey(event)) return;
     if (penPicker.handleKey(event)) return;
     if (selectPicker.handleKey(event)) return;
     if (contentTool.handleKey(event)) return;
@@ -1602,6 +1794,17 @@ for (const [id, icon] of [
     if (navigation.handleKey(event)) return;
     if (textTool.handleKey(event)) return;
     if (isEditableElement(document.activeElement)) return;
+    if (
+      (event.key === 'PageUp' || event.key === 'PageDown') &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      pages.length > 1
+    ) {
+      event.preventDefault();
+      showPage(pageIndex + (event.key === 'PageDown' ? 1 : -1));
+      return;
+    }
     if (
       event.key.toLowerCase() === 'v' &&
       !event.ctrlKey &&

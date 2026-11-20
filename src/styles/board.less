@@ -1206,6 +1206,71 @@ html.has-iro .color-popup-card{
 .canvas-frame > .board-canvas-meta {
   bottom: calc(max(10px, env(safe-area-inset-bottom)) + 60px);
 }
+/* Lesson pages: ‹ 2 / 5 ›, bottom-left, the same surface as the zoom bar. Shown only with 2+ pages. */
+.page-nav {
+  position: absolute;
+  left: max(10px, env(safe-area-inset-left));
+  bottom: max(10px, env(safe-area-inset-bottom));
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--btn-fg);
+}
+.page-nav[hidden] {
+  display: none;
+}
+.page-nav button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: grid;
+  place-items: center;
+}
+.page-nav button:hover:not(:disabled) {
+  background: var(--btn-hover-bg);
+}
+.page-nav button:disabled {
+  opacity: 0.4;
+}
+.page-nav .btn-icon {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+.page-nav svg {
+  width: 100%;
+  height: 100%;
+}
+.page-nav button.page-label {
+  width: auto;
+  min-width: 56px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.page-nav button.page-label[aria-expanded='true'] {
+  background: var(--btn-hover-bg);
+}
+/* The Page menu reuses the Board menu's look and opens above the page number. */
+.board-menu.page-menu {
+  width: 220px;
+}
+/* On phones the zoom bar spans the bottom, so the pages sit one row above it. */
+@media (max-width: 500px) {
+  .page-nav {
+    bottom: calc(max(10px, env(safe-area-inset-bottom)) + 56px);
+  }
+}
 #pad.hand-tool-active {
   cursor: grab;
 }
@@ -1360,8 +1425,8 @@ html.has-iro .color-popup-card{
 }
 @media (max-height:360px) { .short-board-layout(); }
 .board-short-viewport { .short-board-layout(); }
-@media (max-height:200px) { .board-canvas-meta { display:none; } }
-.board-tiny-viewport .board-canvas-meta { display:none; }
+@media (max-height:200px) { .board-canvas-meta, .page-nav { display:none; } }
+.board-tiny-viewport .board-canvas-meta, .board-tiny-viewport .page-nav { display:none; }
 
 /* Board menu: a light list of icon + label rows, grouped by thin dividers. */
 .board-menu { position:fixed; z-index:40; width:248px; padding:6px; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--btn-fg); box-shadow:var(--shadow); overscroll-behavior:contain; touch-action:pan-y; display:flex; flex-direction:column; gap:2px; }
@@ -1431,4 +1496,7 @@ button.destructive { color:var(--danger-fg); }
 .settings-ok { color:var(--btn-fg); }
 .settings-persist { display:flex; flex-direction:column; align-items:flex-start; gap:6px; }
 .settings-action { min-height:36px; padding:6px 12px; font-size:13px; font-weight:600; }
+.settings-free { display:flex; flex-direction:column; align-items:flex-start; gap:6px; margin-top:4px; }
+.settings-free-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.settings-free-actions button:not(.settings-action) { min-height:36px; padding:6px 12px; font-size:13px; }
 #boardName { display:inline-block; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
