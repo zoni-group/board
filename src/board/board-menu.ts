@@ -39,6 +39,7 @@ interface Options {
   theme(): ThemeChoice;
   setTheme(choice: ThemeChoice): void;
   addPage(): void;
+  freeUpSpace(): Promise<number | null>;
 }
 export function boardFileName(name: string, extension: string): string {
   return `${
@@ -374,6 +375,7 @@ export function createBoardMenu(options: Options) {
       setBackground: options.setBackground,
       theme: options.theme,
       setTheme: options.setTheme,
+      freeUpSpace: options.freeUpSpace,
     });
     beforeDismiss = settings.commit;
     const done = control('doneText', dismiss);

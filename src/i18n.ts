@@ -94,6 +94,13 @@ const english = {
   pageDuplicated: 'Page {page} of {count} · duplicated',
   pageMoved: 'Moved to page {page}',
   pageDeleted: 'Page deleted',
+  freeUpSpace: 'Free up space',
+  freeUpSpaceHint: 'Removes Undo history from before each Clear, and images nothing uses anymore.',
+  freeUpSpaceQuestion:
+    "Remove Undo history from before each Clear, on all boards? This can't be undone.",
+  spaceFreed: 'Freed {size}',
+  spaceFreedNone: 'Nothing to free up',
+  spaceFreeFailed: "Couldn't free up space",
   appearanceSection: 'Appearance',
   storageSection: 'Storage',
   pattern: 'Pattern',
@@ -299,6 +306,14 @@ const translations = {
     pageDuplicated: 'Página {page} de {count} · duplicada',
     pageMoved: 'Movida a la página {page}',
     pageDeleted: 'Página eliminada',
+    freeUpSpace: 'Liberar espacio',
+    freeUpSpaceHint:
+      'Elimina el historial de Deshacer anterior a cada Borrado y las imágenes que ya no se usan.',
+    freeUpSpaceQuestion:
+      '¿Eliminar el historial de Deshacer anterior a cada Borrado en todas las pizarras? No se puede deshacer.',
+    spaceFreed: 'Se liberaron {size}',
+    spaceFreedNone: 'No hay nada que liberar',
+    spaceFreeFailed: 'No se pudo liberar espacio',
     appearanceSection: 'Apariencia',
     storageSection: 'Almacenamiento',
     pattern: 'Fondo',

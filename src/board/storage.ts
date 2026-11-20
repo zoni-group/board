@@ -1,4 +1,12 @@
-import { IMAGE_TYPES, VIDEO_TYPES, isFiniteNumber, isRecord, normalizeCommand } from './model.ts';
+import {
+  IMAGE_TYPES,
+  VIDEO_TYPES,
+  assetIdFor,
+  expandCommands,
+  isFiniteNumber,
+  isRecord,
+  normalizeCommand,
+} from './model.ts';
 import type { BoardSnapshot } from './model.ts';
 import { normalizeViewport } from './viewport.ts';
 import type { BoardViewport } from './viewport.ts';
@@ -187,6 +195,46 @@ export function toStoredBoard(board: BoardDocument): Record<string, unknown> {
 /** Every page's commands and redo commands, the open page first. */
 export function boardPageSnapshots(board: BoardDocument): BoardSnapshot[] {
   return [board, ...board.pages.filter((_, index) => index !== board.pageIndex)];
+}
+/** Media ids that any page's undo or redo history refers to. */
+export function boardAssetIds(board: BoardDocument): Set<string> {
+  const ids = new Set<string>();
+  for (const page of boardPageSnapshots(board))
+    for (const command of expandCommands([...page.commands, ...page.redoCommands]))
+      if (command.type === 'content-set') {
+        const id = assetIdFor(command.object);
+        if (id) ids.add(id);
+      }
+  return ids;
+}
+/**
+ * Drops the history a page can only reach by undoing its last Clear, and its redo stack.
+ * The page looks the same afterwards. Returns null when there is nothing to drop.
+ */
+export function compactBoardHistory<T extends BoardSnapshot>(page: T): T | null {
+  let lastClear = page.commands.length - 1;
+  while (lastClear >= 0 && page.commands[lastClear].type !== 'clear') lastClear--;
+  if (lastClear < 0 && !page.redoCommands.length) return null;
+  return { ...page, commands: page.commands.slice(lastClear + 1), redoCommands: [] };
+}
+/** Compacts every page of a board; null when no page changes. */
+export function compactBoard(board: BoardDocument): BoardDocument | null {
+  const open = compactBoardHistory(board);
+  const pages = board.pages.map((page, index) =>
+    index === board.pageIndex ? page : (compactBoardHistory(page) ?? page)
+  );
+  if (!open && pages.every((page, index) => page === board.pages[index])) return null;
+  const flat = open ?? board;
+  return {
+    ...board,
+    commands: flat.commands,
+    redoCommands: flat.redoCommands,
+    pages: pages.map((page, index) =>
+      index === board.pageIndex
+        ? { ...page, commands: flat.commands, redoCommands: flat.redoCommands }
+        : page
+    ),
+  };
 }
 function summary(board: BoardDocument): BoardSummary {
   const { id, name, createdAtMs, updatedAtMs, revision } = board;
@@ -469,6 +517,58 @@ export async function deleteBoard(id: BoardId, baseName = 'Board'): Promise<Boar
     }
     meta.put({ ...library, activeBoardId: next.id, boards: remaining }, 'library');
     return next;
+  });
+}
+async function deleteUnusedAssets(
+  tx: IDBTransaction,
+  board: BoardDocument,
+  keep: ReadonlySet<string>
+): Promise<number> {
+  const used = boardAssetIds(board);
+  const assets = tx.objectStore('assets');
+  const keys = await read(assets.index('byBoard').getAllKeys(board.id));
+  let removed = 0;
+  for (const key of keys)
+    if (typeof key === 'string' && !used.has(key) && !keep.has(key)) {
+      assets.delete(key);
+      removed++;
+    }
+  return removed;
+}
+/**
+ * Deletes a board's media that its saved history no longer refers to. It decides from the
+ * stored document, so media a saved board uses are never removed. `keep` protects more ids.
+ */
+export async function pruneBoardAssets(
+  id: BoardId,
+  keep: ReadonlySet<string> = new Set()
+): Promise<number> {
+  return transaction(['boards', 'assets'], 'readwrite', async (tx) => {
+    const board = normalizeBoardDocument(await read(tx.objectStore('boards').get(id)));
+    if (!board) throw new BoardStorageError('boardDeleted');
+    return deleteUnusedAssets(tx, board, keep);
+  });
+}
+/** Compacts a board that isn't open here and deletes the media it no longer uses. */
+export async function compactStoredBoard(id: BoardId): Promise<number> {
+  return transaction(['meta', 'boards', 'assets'], 'readwrite', async (tx) => {
+    const meta = tx.objectStore('meta'),
+      store = tx.objectStore('boards'),
+      library = catalog(await read(meta.get('library')));
+    const board = normalizeBoardDocument(await read(store.get(id)));
+    if (!board) throw new BoardStorageError('boardDeleted');
+    const compacted = compactBoard(board);
+    if (compacted) {
+      // A new revision makes another tab with this board open reload instead of overwriting it.
+      const next = { ...compacted, revision: board.revision + 1, updatedAtMs: Date.now() };
+      store.put(toStoredBoard(next));
+      meta.put(
+        { ...library, boards: library.boards.map((b) => (b.id === id ? summary(next) : b)) },
+        'library'
+      );
+      return deleteUnusedAssets(tx, next, new Set());
+    }
+    return deleteUnusedAssets(tx, board, new Set());
   });
 }
 export async function putAssetRecord(asset: StoredAsset): Promise<void> {

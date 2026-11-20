@@ -19,6 +19,10 @@ import {
   updateBoardBackground,
   normalizeBoardDocument,
   toStoredBoard,
+  boardAssetIds,
+  compactBoardHistory,
+  compactStoredBoard,
+  pruneBoardAssets,
 } from '../../src/board/storage.ts';
 import { textObject } from '../helpers/text-fixture.js';
 let first;
@@ -323,5 +327,105 @@ describe('lesson pages', () => {
     expect(await session.save()).toBe(true);
     expect((await loadBoardDrawing(first.id)).pages).toHaveLength(2);
     expect(session.record.version).toBe(2);
+  });
+});
+
+describe('unused media clean-up', () => {
+  const image = (assetId, id = assetId) => ({
+    type: 'content-set',
+    object: {
+      id,
+      kind: 'image',
+      assetId,
+      position: { x: 0, y: 0 },
+      width: 10,
+      height: 10,
+      title: 'x',
+    },
+  });
+  const media = (id, boardId = first.id) => ({
+    id,
+    boardId,
+    kind: 'image',
+    width: 1,
+    height: 1,
+    blob: { bytes: new ArrayBuffer(1), type: 'image/png' },
+  });
+  const page = (id, commands = [], redoCommands = []) => ({
+    id,
+    commands,
+    redoCommands,
+    viewport: null,
+  });
+  const stored = async (ids) =>
+    (await Promise.all(ids.map((id) => getAssetRecord(id)))).map(Boolean);
+
+  it('finds media in history, redo, batches and closed pages', () => {
+    const board = {
+      ...first,
+      commands: [image('a'), { type: 'batch', commands: [image('b')] }],
+      redoCommands: [image('c')],
+      pages: [page('page-1'), page('two', [image('d')], [image('e')])],
+      pageIndex: 0,
+    };
+    expect([...boardAssetIds(board)].sort()).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+
+  it('compacting keeps what follows the last Clear and drops redo', () => {
+    const after = { ...stroke, id: 'after' };
+    expect(compactBoardHistory({ commands: [stroke], redoCommands: [] })).toBeNull();
+    expect(
+      compactBoardHistory({
+        commands: [image('a'), { type: 'clear' }, stroke, { type: 'clear' }, after],
+        redoCommands: [image('b')],
+      })
+    ).toEqual({ commands: [after], redoCommands: [] });
+    expect(compactBoardHistory({ commands: [stroke], redoCommands: [image('b')] })).toEqual({
+      commands: [stroke],
+      redoCommands: [],
+    });
+  });
+
+  it('deletes only media that no page uses, and keeps the protected ones', async () => {
+    const other = await createBoard('Other');
+    for (const id of ['open', 'closed', 'redo', 'orphan', 'kept']) await putAssetRecord(media(id));
+    await putAssetRecord(media('elsewhere', other.id));
+    await saveBoardDrawing(
+      first.id,
+      state({
+        commands: [image('open')],
+        redoCommands: [image('redo')],
+        pages: [page('page-1'), page('two', [image('closed')])],
+        pageIndex: 0,
+      }),
+      0
+    );
+    expect(await pruneBoardAssets(first.id, new Set(['kept']))).toBe(1);
+    expect(await stored(['open', 'closed', 'redo', 'orphan', 'kept', 'elsewhere'])).toEqual([
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+    ]);
+  });
+
+  it('compacts a stored board, bumps its revision and frees media before the Clear', async () => {
+    await putAssetRecord(media('before'));
+    await putAssetRecord(media('after'));
+    await saveBoardDrawing(
+      first.id,
+      state({ commands: [image('before'), { type: 'clear' }, image('after')] }),
+      0
+    );
+    expect(await compactStoredBoard(first.id)).toBe(1);
+    const board = await loadBoardDrawing(first.id);
+    expect(board.revision).toBe(2);
+    expect(board.commands).toEqual([image('after')]);
+    expect(await stored(['before', 'after'])).toEqual([false, true]);
+    // Nothing left to compact: the revision stays.
+    expect(await compactStoredBoard(first.id)).toBe(0);
+    expect((await loadBoardDrawing(first.id)).revision).toBe(2);
   });
 });

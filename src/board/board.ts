@@ -5,12 +5,17 @@ import {
   createBoardSession,
   emptyBoard,
   MAX_PAGES,
+  boardAssetIds,
+  compactBoardHistory,
+  compactStoredBoard,
+  listBoards,
+  pruneBoardAssets,
   updateBoardBackground,
 } from './storage.ts';
 import type { BoardDocument, BoardPage, BoardSession } from './storage.ts';
 import { createPageNav } from './page-nav.ts';
 import { createBoardMenu, boardFileName } from './board-menu.ts';
-import { cloneCommand, clonePoint } from './model.ts';
+import { cloneCommand, clonePoint, expandCommands } from './model.ts';
 import { createTextTool } from './text-tool.ts';
 import { createShapeTool } from './shape-tool.ts';
 import { createSelection } from './selection.ts';
@@ -776,6 +781,58 @@ for (const [id, icon] of [
     pages.splice(pageIndex, 1);
     enterPage(Math.min(pageIndex, pages.length - 1), 'pageDeleted');
     canvas.focus({ preventScroll: true });
+    scheduleAssetCleanup();
+  }
+  let cleanupTimer: number | undefined;
+  /**
+   * Deletes the open board's media that no page's history refers to anymore. It runs a moment
+   * after the change, never during a media insert, and only once the board is saved.
+   */
+  function scheduleAssetCleanup(delay = 2000) {
+    window.clearTimeout(cleanupTimer);
+    cleanupTimer = window.setTimeout(() => void cleanUpAssets(), delay);
+  }
+  async function cleanUpAssets() {
+    if (!boardReady || !boardSession || contentTool.isEditing()) {
+      if (boardSession) scheduleAssetCleanup();
+      return;
+    }
+    const session = boardSession;
+    const saved = (await queueBoardPersistence()) && (await session.flush());
+    if (!saved || session !== boardSession || contentTool.isEditing()) return;
+    // The saved document decides; what this tab holds in memory is kept as well.
+    await pruneBoardAssets(session.record.id, boardAssetIds(currentDocument())).catch(() => 0);
+  }
+  /**
+   * Settings → Storage → Free up space: drops the history before each page's last Clear and the
+   * redo stacks on every board, then deletes the media nothing uses. Returns the bytes freed,
+   * or null when the browser can't estimate storage.
+   */
+  async function freeUpSpace(): Promise<number | null> {
+    if (!boardReady || !boardSession || !(await prepareBoard(true))) throw new Error('busy');
+    const estimate = async () =>
+      navigator.storage?.estimate
+        ? ((await navigator.storage.estimate().catch(() => null))?.usage ?? null)
+        : null;
+    const before = await estimate();
+    const open = compactBoardHistory({ commands: commandHistory, redoCommands: redoHistory });
+    if (open) {
+      commandHistory.splice(0, commandHistory.length, ...open.commands);
+      redoHistory.length = 0;
+    }
+    pages = pages.map((page, index) =>
+      index === pageIndex ? page : (compactBoardHistory(page) ?? page)
+    );
+    resetScene();
+    syncHistoryButtons();
+    redrawCanvas();
+    const session = boardSession;
+    if (!(await queueBoardPersistence()) || !(await session.flush())) throw new Error('save');
+    await pruneBoardAssets(session.record.id);
+    for (const board of await listBoards())
+      if (board.id !== session.record.id) await compactStoredBoard(board.id);
+    const after = await estimate();
+    return before === null || after === null ? null : Math.max(0, before - after);
   }
   /** Deletes the open page; asks first when it has drawing or undo history. */
   function deletePage() {
@@ -832,6 +889,8 @@ for (const [id, icon] of [
       setActive({ announce: false });
     }
     canvas.focus({ preventScroll: true });
+    // Media left behind by earlier versions or by an interrupted session.
+    scheduleAssetCleanup();
   }
   async function prepareBoard(requireSave: boolean): Promise<boolean> {
     if (!contentTool.finish() || !textTool.finish()) return false;
@@ -870,6 +929,7 @@ for (const [id, icon] of [
     theme: storedTheme,
     setTheme: (choice) => setTheme(choice),
     addPage,
+    freeUpSpace,
   });
   const pageNav = createPageNav({
     nav: requireElement('pageNav', 'nav'),
@@ -883,10 +943,15 @@ for (const [id, icon] of [
   function pushHistoryCommand(command: BoardCommand, { clearRedo = true } = {}) {
     const nextCommand = cloneCommand(command);
     commandHistory.push(nextCommand);
-    if (clearRedo) {
-      redoHistory.length = 0;
-    }
+    if (clearRedo) dropRedo();
     syncHistoryButtons();
+  }
+  /** New drawing replaces the redo stack; media only it used can then be deleted. */
+  function dropRedo() {
+    if (!redoHistory.length) return;
+    const hadMedia = [...expandCommands(redoHistory)].some((c) => c.type === 'content-set');
+    redoHistory.length = 0;
+    if (hadMedia) scheduleAssetCleanup();
   }
 
   // Make sure ink stays readable on current canvas background.
@@ -1349,7 +1414,7 @@ for (const [id, icon] of [
     finishStroke({ commit: false });
 
     if (commandHistory.length === 0) {
-      redoHistory.length = 0;
+      dropRedo();
       redrawCanvas();
       syncHistoryButtons();
       queueBoardPersistence();

@@ -165,4 +165,5 @@ test('Settings follow the language toggle', async ({ page, isMobile }) => {
   await openSettings(page);
   await expect(page.locator('#boardPanelTitle')).toHaveText('Ajustes');
   await expect(page.locator('.settings-patterns')).toContainText('Cuadrícula');
+  await expect(page.locator('#freeUpSpace')).toHaveText('Liberar espacio');
 });
