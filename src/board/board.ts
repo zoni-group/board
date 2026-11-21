@@ -15,12 +15,15 @@ import {
 import type { BoardDocument, BoardPage, BoardSession } from './storage.ts';
 import { createPageNav } from './page-nav.ts';
 import { createBoardMenu, boardFileName } from './board-menu.ts';
+import type { Transfer } from './board-menu.ts';
+import { writePdf } from './pdf-writer.ts';
+import type { PdfPageImage } from './pdf-writer.ts';
 import { cloneCommand, clonePoint, expandCommands } from './model.ts';
 import { createTextTool } from './text-tool.ts';
 import { createShapeTool } from './shape-tool.ts';
 import { createSelection } from './selection.ts';
 import { createContentTool } from './content-tool.ts';
-import { createAssetCache } from './assets.ts';
+import { createAssetCache, discardAsset, saveAsset } from './assets.ts';
 import { drawContent, contentBounds } from './content.ts';
 import { renderInk } from './ink.ts';
 import { createBoardNavigation } from './navigation.ts';
@@ -50,6 +53,7 @@ import type { BoardViewport } from './viewport.ts';
 import type {
   BoardCommand,
   BoardSnapshot,
+  ImageObject,
   Point,
   StrokeCommand,
   BoardTool,
@@ -94,6 +98,8 @@ import {
   IconSettings,
   IconTrash,
   IconAddPage,
+  IconInsertPdf,
+  IconPdf,
 } from '../icons.ts';
 
 interface ToolOptions {
@@ -153,7 +159,9 @@ for (const [id, icon] of [
   ['exportBoard', IconExport],
   ['exportAllBoards', IconExportAll],
   ['importBoards', IconImport],
+  ['insertPdf', IconInsertPdf],
   ['save', IconImage],
+  ['savePdf', IconPdf],
   ['boardSettings', IconSettings],
   ['clear', IconTrash],
 ] as const)
@@ -181,6 +189,7 @@ for (const [id, icon] of [
   const boardsBtn = requireElement('boards', 'button');
   const clearBtn = requireElement('clear', 'button');
   const saveBtn = requireElement('save', 'button');
+  const savePdfBtn = requireElement('savePdf', 'button');
   const handBtn = requireElement('hand', 'button');
   const selectBtn = requireElement('select', 'button');
   const zoomInBtn = requireElement('zoomIn', 'button');
@@ -513,6 +522,7 @@ for (const [id, icon] of [
     historyChanged: syncHistoryButtons,
     ink: appliedInkFromRaw,
     status: setStatus,
+    insertPdf: (file) => void boardMenu.insertPdf(file),
   });
 
   function boardSize() {
@@ -586,6 +596,7 @@ for (const [id, icon] of [
   function syncSaveButton() {
     if (!saveBtn) return;
     saveBtn.disabled = saveBusy;
+    savePdfBtn.disabled = saveBusy;
   }
 
   function setActive(options: ToolOptions = {}) {
@@ -752,11 +763,86 @@ for (const [id, icon] of [
     enterPage(index);
     return true;
   }
-  function insertPage(page: Omit<BoardPage, 'id'>, status: string) {
-    if (!boardReady || pages.length >= MAX_PAGES || !leavePage()) return;
-    pages.splice(pageIndex + 1, 0, { ...page, id: crypto.randomUUID() });
+  /** Inserts pages after the open one and opens the first of them. False if they don't fit. */
+  function insertPages(added: Omit<BoardPage, 'id'>[], status: string) {
+    if (!boardReady || !added.length || pages.length + added.length > MAX_PAGES || !leavePage())
+      return false;
+    pages.splice(pageIndex + 1, 0, ...added.map((page) => ({ ...page, id: crypto.randomUUID() })));
     enterPage(pageIndex + 1, status);
     canvas.focus({ preventScroll: true });
+    return true;
+  }
+  function insertPage(page: Omit<BoardPage, 'id'>, status: string) {
+    insertPages([page], status);
+  }
+  let pdfModule: Promise<typeof import('./pdf-import.ts')> | undefined;
+  const pdfImport = () =>
+    (pdfModule ??= import('./pdf-import.ts').catch((error) => {
+      pdfModule = undefined;
+      throw error;
+    }));
+  /**
+   * Board menu → Insert PDF, or a PDF dropped on the board: each PDF page becomes a board page
+   * after the open one, holding the page as an image to write on. The menu keeps its progress
+   * panel open meanwhile, which also holds off the media clean-up.
+   */
+  async function insertPdf(file: File, transfer: Transfer) {
+    if (!boardReady || !boardSession) return;
+    const room = MAX_PAGES - pages.length;
+    if (room <= 0) {
+      setStatus(t('boardFull', { max: MAX_PAGES }));
+      return;
+    }
+    const boardId = boardSession.record.id;
+    const { readPdfPages } = await pdfImport();
+    const read = await readPdfPages(file, {
+      signal: transfer.signal,
+      maxPages: room,
+      progress(done, count) {
+        transfer.progress(done, count);
+        if (done < count) setStatus(t('importingPdfPage', { page: done + 1, count }));
+      },
+    });
+    if (!read.pages.length) throw new Error('pdfUnreadable');
+    const saved: string[] = [];
+    try {
+      for (const image of read.pages) {
+        if (transfer.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+        saved.push(await saveAsset(boardId, image));
+      }
+      if (transfer.signal.aborted || boardSession?.record.id !== boardId)
+        throw new DOMException('Cancelled', 'AbortError');
+      const title = file.name.slice(0, 480);
+      const added = read.pages.map((image, index): Omit<BoardPage, 'id'> => {
+        // Two pixels per board unit keep the page sharp when zoomed in.
+        const width = image.width / 2,
+          height = image.height / 2;
+        const object: ImageObject = {
+          id: crypto.randomUUID(),
+          kind: 'image',
+          assetId: saved[index],
+          position: { x: 0, y: 0 },
+          width,
+          height,
+          title: read.pages.length > 1 ? `${title} · ${index + 1}` : title,
+        };
+        return {
+          commands: [{ type: 'content-set', object }],
+          redoCommands: [],
+          viewport: fitViewport({ x: 0, y: 0, width, height }, boardSize()),
+        };
+      });
+      if (!insertPages(added, 'pageOf')) throw new Error('boardOperationFailed');
+    } catch (error) {
+      await Promise.all(saved.map((id) => discardAsset(id).catch(() => {})));
+      throw error;
+    }
+    const count = read.pages.length;
+    setStatus(
+      count < read.total
+        ? t('pdfInsertedPartly', { count, total: read.total, max: MAX_PAGES })
+        : t(count === 1 ? 'pdfInsertedOne' : 'pdfInserted', { count })
+    );
   }
   function addPage() {
     insertPage({ commands: [], redoCommands: [], viewport: null }, 'pageOf');
@@ -794,14 +880,14 @@ for (const [id, icon] of [
     cleanupTimer = window.setTimeout(() => void cleanUpAssets(), delay);
   }
   async function cleanUpAssets() {
-    if (!boardReady || !boardSession || contentTool.isEditing()) {
+    if (!boardReady || !boardSession || contentTool.isEditing() || boardMenu.isWorking()) {
       if (boardSession) scheduleAssetCleanup();
       return;
     }
     const session = boardSession;
     // Wait for a save in progress, but don't start one.
     await session.flush();
-    if (session !== boardSession || contentTool.isEditing()) return;
+    if (session !== boardSession || contentTool.isEditing() || boardMenu.isWorking()) return;
     // Media the saved board or this tab's unsaved state still uses are both kept.
     await pruneBoardAssets(session.record.id, boardAssetIds(currentDocument())).catch(() => 0);
   }
@@ -931,6 +1017,7 @@ for (const [id, icon] of [
     theme: storedTheme,
     setTheme: (choice) => setTheme(choice),
     addPage,
+    insertPdf,
     freeUpSpace,
   });
   const pageNav = createPageNav({
@@ -1505,22 +1592,30 @@ for (const [id, icon] of [
     return new Blob([bytes], { type: mimeType });
   }
 
-  function canvasToPngBlob(sourceCanvas: HTMLCanvasElement): Promise<Blob> {
+  function canvasToBlob(
+    sourceCanvas: HTMLCanvasElement,
+    type = 'image/png',
+    quality?: number
+  ): Promise<Blob> {
     return new Promise<Blob>((resolve, reject) => {
       if (typeof sourceCanvas?.toBlob === 'function') {
-        sourceCanvas.toBlob((blob) => {
-          if (blob) {
-            resolve(blob);
-            return;
-          }
+        sourceCanvas.toBlob(
+          (blob) => {
+            if (blob) {
+              resolve(blob);
+              return;
+            }
 
-          reject(new Error('Could not prepare the drawing.'));
-        }, 'image/png');
+            reject(new Error('Could not prepare the drawing.'));
+          },
+          type,
+          quality
+        );
         return;
       }
 
       try {
-        resolve(dataUrlToBlob(sourceCanvas.toDataURL('image/png')));
+        resolve(dataUrlToBlob(sourceCanvas.toDataURL(type, quality)));
       } catch (error) {
         reject(error);
       }
@@ -1546,12 +1641,80 @@ for (const [id, icon] of [
         boardBackground
       );
       return {
-        fileBlob: await canvasToPngBlob(exported.canvas),
+        fileBlob: await canvasToBlob(exported.canvas),
         fileName,
         reduced: exported.reduced,
       };
     } finally {
       exportAssets.clear();
+    }
+  }
+
+  function downloadBlob(blob: Blob, fileName: string) {
+    const objectUrl = URL.createObjectURL(blob);
+    const downloadLink = document.createElement('a');
+    downloadLink.href = objectUrl;
+    downloadLink.download = fileName;
+    downloadLink.rel = 'noopener';
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    downloadLink.remove();
+    URL.revokeObjectURL(objectUrl);
+  }
+
+  /** Board menu → Save PDF: one PDF page per board page, each drawn like Save PNG. */
+  async function downloadBoardAsPdf() {
+    if (!contentTool.finish() || !textTool.finish()) return;
+    shapeTool.flushStyle();
+    if (saveBusy) return;
+    finishStroke({ commit: true });
+    navigation.cancel();
+
+    saveBusy = true;
+    syncSaveButton();
+    const count = pages.length;
+    try {
+      const images: PdfPageImage[] = [];
+      let reduced = false;
+      for (let index = 0; index < count; index++) {
+        setStatus(t('preparingPdf', { page: index + 1, count }));
+        const scene =
+          index === pageIndex ? getScene() : createBoardScene(pages[index].commands, textContext);
+        const media = createAssetCache(() => {});
+        try {
+          await media.prepare(scene.content);
+          const out = createDrawingCanvas(
+            scene,
+            boardSize(),
+            currentCanvasBg(),
+            renderedInk,
+            media,
+            boardBackground,
+            { pixelRatio: 2 }
+          );
+          reduced ||= out.reduced;
+          const jpeg = await canvasToBlob(out.canvas, 'image/jpeg', 0.9);
+          images.push({
+            jpeg: new Uint8Array(await jpeg.arrayBuffer()),
+            width: out.canvas.width,
+            height: out.canvas.height,
+            // 96 board units per inch, so a page prints at the size it is drawn.
+            pageWidth: out.area.width * 0.75,
+            pageHeight: out.area.height * 0.75,
+          });
+          out.canvas.width = out.canvas.height = 0;
+        } finally {
+          media.clear();
+        }
+      }
+      const name = boardSession?.record.name ?? t('boardDefaultName');
+      downloadBlob(writePdf(images), boardFileName(name, 'pdf'));
+      setStatus(t(reduced ? 'downloadedPdfReduced' : 'downloadedPdf'));
+    } catch {
+      setStatus(t('savePdfFailed'));
+    } finally {
+      saveBusy = false;
+      syncSaveButton();
     }
   }
 
@@ -1568,15 +1731,7 @@ for (const [id, icon] of [
 
     try {
       const exportedDrawing = await exportCanvasAsPng();
-      const objectUrl = URL.createObjectURL(exportedDrawing.fileBlob);
-      const downloadLink = document.createElement('a');
-      downloadLink.href = objectUrl;
-      downloadLink.download = exportedDrawing.fileName;
-      downloadLink.rel = 'noopener';
-      document.body.appendChild(downloadLink);
-      downloadLink.click();
-      downloadLink.remove();
-      URL.revokeObjectURL(objectUrl);
+      downloadBlob(exportedDrawing.fileBlob, exportedDrawing.fileName);
       setStatus(t(exportedDrawing.reduced ? 'downloadedPngReduced' : 'downloadedPng'));
     } catch {
       setStatus(t('savePngFailed'));
@@ -1746,6 +1901,9 @@ for (const [id, icon] of [
   clearBtn.addEventListener('click', clear);
   saveBtn.addEventListener('click', () => {
     void downloadDrawingAsPng();
+  });
+  savePdfBtn.addEventListener('click', () => {
+    void downloadBoardAsPdf();
   });
 
   // Theme or paper changes: recompute presets, ink contrast and the canvas.

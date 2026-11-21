@@ -42,9 +42,10 @@ export function createDrawingCanvas(
   background: string,
   ink: InkColor,
   media?: Pick<ContentPaintOptions, 'image'>,
-  paper?: BoardBackground
+  paper?: BoardBackground,
+  { pixelRatio = 1 }: { pixelRatio?: number } = {}
 ) {
-  const geometry = exportGeometry(scene.bounds, size);
+  const geometry = exportGeometry(scene.bounds, size, pixelRatio);
   const out = document.createElement('canvas'),
     inkCanvas = document.createElement('canvas');
   out.width = inkCanvas.width = geometry.width;
@@ -64,5 +65,5 @@ export function createDrawingCanvas(
   applyViewport(ctx, geometry.view, geometry);
   for (const shape of scene.shapes) drawShape(ctx, shape, ink);
   for (const object of scene.text) drawText(ctx, object, cachedTextLayout(ctx, object));
-  return { canvas: out, reduced: geometry.reduced };
+  return { canvas: out, reduced: geometry.reduced, area: geometry.area };
 }

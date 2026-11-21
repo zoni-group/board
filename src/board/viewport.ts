@@ -114,12 +114,13 @@ export function normalizeViewport(value: unknown): BoardViewport | null {
   return center ? { center, zoom: clampZoom(value.zoom) } : null;
 }
 
-export function exportGeometry(bounds: BoardBounds | null, size: BoardSize) {
+/** Pixels per board unit default to 1; a higher `pixelRatio` (e.g. for print) is still capped. */
+export function exportGeometry(bounds: BoardBounds | null, size: BoardSize, pixelRatio = 1) {
   const area = bounds
     ? { x: bounds.x - 32, y: bounds.y - 32, width: bounds.width + 64, height: bounds.height + 64 }
     : { x: 0, y: 0, width: Math.max(1, size.width), height: Math.max(1, size.height) };
   const scale = Math.min(
-    1,
+    pixelRatio,
     4096 / area.width,
     4096 / area.height,
     Math.sqrt((8 * 1024 * 1024) / (area.width * area.height))
@@ -129,7 +130,9 @@ export function exportGeometry(bounds: BoardBounds | null, size: BoardSize) {
   return {
     width,
     height,
-    reduced: scale < 1,
+    reduced: scale < Math.min(1, pixelRatio),
+    /** The exported area in board units, before scaling to pixels. */
+    area: { width: area.width, height: area.height },
     view: {
       center: { x: area.x + area.width / 2, y: area.y + area.height / 2 },
       zoom: Math.min(width / area.width, height / area.height),

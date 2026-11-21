@@ -43,6 +43,8 @@ interface ContentToolOptions {
   historyChanged(): void;
   ink(): string;
   status(message: string): void;
+  /** A PDF dropped on the board becomes pages, not an image. */
+  insertPdf(file: File): void;
 }
 export function createContentTool(options: ContentToolOptions) {
   const { canvas, button } = options;
@@ -492,6 +494,10 @@ export function createContentTool(options: ContentToolOptions) {
     }
     const file = event.dataTransfer.files[0],
       rect = canvas.getBoundingClientRect();
+    if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+      options.insertPdf(file);
+      return;
+    }
     const point = screenToWorld(
       { x: event.clientX - rect.left, y: event.clientY - rect.top },
       options.view(),

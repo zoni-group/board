@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { chooseObject } from '../helpers/object-picker.js';
 import { selectPen } from '../helpers/pen-picker.js';
+import { boardAction } from '../helpers/board-menu.js';
+import { vectorPdf } from '../helpers/pdf-fixture.js';
 
 async function waitUntilControlled(page) {
   await page.evaluate(async () => {
@@ -49,4 +51,24 @@ test('opens and uses every tool without a connection after one online visit', as
   await page.reload();
   await expect(page.locator('#boards')).toBeEnabled();
   await expect(page.locator('#undo')).toBeEnabled();
+});
+
+test('inserts a PDF without a connection; the PDF reader comes from the precache', async ({
+  page,
+  context,
+}) => {
+  await page.goto('/');
+  await expect(page.locator('#boards')).toBeEnabled();
+  await waitUntilControlled(page);
+
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator('#boards')).toBeEnabled();
+  const chooser = page.waitForEvent('filechooser');
+  await boardAction(page, 'insertPdf');
+  await (
+    await chooser
+  ).setFiles({ name: 'worksheet.pdf', mimeType: 'application/pdf', buffer: vectorPdf(2) });
+  await expect(page.locator('#status')).toContainText('Inserted 2 pages from the PDF');
+  await expect(page.locator('#pageMenuButton')).toHaveText('2 / 3');
 });

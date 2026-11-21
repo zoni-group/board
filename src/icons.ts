@@ -267,6 +267,10 @@ export const IconExportAll = menuIcon(
 export const IconImport = menuIcon(
   '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/>'
 );
+const pageOutline =
+  '<path d="M13.5 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z"/><path d="M13.5 3.5V9H19"/>';
+export const IconInsertPdf = menuIcon(`${pageOutline}<path d="M12 11v6M9.5 14.5 12 17l2.5-2.5"/>`);
+export const IconPdf = menuIcon(`${pageOutline}<path d="M8.5 13h7M8.5 16.5h5"/>`);
 export const IconRename = menuIcon(
   '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16Z"/><path d="m13.5 6.5 4 4"/>'
 );
