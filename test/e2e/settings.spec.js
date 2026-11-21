@@ -48,7 +48,7 @@ test.beforeEach(async ({ page }) => {
 test('opens Settings from the Board menu without adding toolbar buttons', async ({ page }) => {
   await expect(page.locator('.board-action-strip > button')).toHaveCount(7);
   await page.locator('#boards').click();
-  await expect(page.locator('#boardMenu .menu-item')).toHaveCount(9);
+  await expect(page.locator('#boardMenu .menu-item')).toHaveCount(11);
   await page.keyboard.press('End');
   await expect(page.locator('#clear')).toBeFocused();
   await page.keyboard.press('ArrowUp');

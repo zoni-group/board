@@ -84,6 +84,18 @@ describe('whole-board PNG dimensions', () => {
     expect(result.view.center).toEqual({ x: 200, y: 100 });
     expect(exportGeometry(null, size)).toMatchObject({ ...size, reduced: false });
   });
+  it('renders at a higher pixel ratio for print, still within the caps', () => {
+    const bounds = { x: 0, y: 0, width: 736, height: 436 };
+    const sharp = exportGeometry(bounds, size, 2);
+    expect(sharp).toMatchObject({ width: 1600, height: 1000, reduced: false });
+    expect(sharp.area).toEqual({ width: 800, height: 500 });
+    expect(sharp.view.zoom).toBe(2);
+    // Too big for 2×, but still at least 1×: not reduced.
+    const large = exportGeometry({ x: 0, y: 0, width: 2936, height: 1936 }, size, 2);
+    expect(large.width).toBeLessThanOrEqual(4096);
+    expect(large.width * large.height).toBeLessThanOrEqual(8 * 1024 * 1024);
+    expect(large.reduced).toBe(false);
+  });
   it('caps both dimensions and pixel count, including very wide and tall drawings', () => {
     for (const [width, height] of [
       [1e6, 100],

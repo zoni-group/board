@@ -17,7 +17,7 @@ What it does:
 - brush size control, preset swatches, and an `iro` color picker
 - editable, movable text blocks with selected-word formatting
 - images, formatted tables, and video cards through the Text button's **Add object** picker
-- undo, redo, clear, and PNG download
+- undo, redo, clear, PNG download, and PDF import/export (one board page per PDF page)
 - multiple named boards with local autosave in IndexedDB and portable `.zoniboard` backups
 - per-board paper (blank, grid, lined, dotted; paper colors), a Light/Dark/System theme choice, and
   storage details in **Settings**
@@ -356,6 +356,9 @@ seven buttons; navigation remains separate and visible.
   receive numbered suffixes. After importing, the exported active board opens.
 - **Save PNG** exports the current board as an image named after the board. Editable exports keep
   objects and history; PNGs are flattened images.
+- **Save PDF** exports every page of the board, in order, as one PDF named after the board. Each PDF
+  page is the page's whole drawing, like Save PNG, at twice the resolution for print, and prints
+  at the size it is drawn (96 board units per inch).
 
 ## Pages
 
@@ -371,8 +374,19 @@ presenter clickers work. Tap the page number for the **Page menu**:
   history. With one page left, the control hides again.
 
 Each page has its own drawing, Undo history and view; the board name and paper are shared. Page
-actions are not Undo steps. **Save PNG** exports the current page, and board exports include every
-page.
+actions are not Undo steps. **Save PNG** exports the current page; **Save PDF** and board exports
+include every page.
+
+### PDF worksheets
+
+**Boards → Insert PDF…**, or dropping a PDF on the board, turns each PDF page into a new board page
+after the current one, with the PDF page as an image to write on. The progress panel shows the page
+being read and can be cancelled; nothing is added until every page is ready. PDFs up to 50 MB are
+accepted. When the board has room for fewer pages than the PDF has (a board holds up to 200), the
+first pages that fit are inserted and the status line says so. Pages arrive as images, so their text
+can't be selected or edited. Password-protected PDFs aren't supported. The PDF reader
+([pdf.js](https://mozilla.github.io/pdf.js/)) loads only when first used and is cached for offline
+use.
 
 ## Settings
 

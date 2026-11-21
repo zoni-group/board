@@ -39,7 +39,13 @@ interface Options {
   theme(): ThemeChoice;
   setTheme(choice: ThemeChoice): void;
   addPage(): void;
+  /** Renders the PDF and inserts its pages; the menu shows progress and Cancel meanwhile. */
+  insertPdf(file: File, transfer: Transfer): Promise<void>;
   freeUpSpace(): Promise<number | null>;
+}
+export interface Transfer {
+  signal: AbortSignal;
+  progress(done: number, total: number): void;
 }
 export function boardFileName(name: string, extension: string): string {
   return `${
@@ -68,6 +74,11 @@ export function createBoardMenu(options: Options) {
   input.accept = '.zoniboard';
   input.hidden = true;
   document.body.append(input);
+  const pdfInput = document.createElement('input');
+  pdfInput.type = 'file';
+  pdfInput.accept = '.pdf,application/pdf';
+  pdfInput.hidden = true;
+  document.body.append(pdfInput);
   button.setAttribute('aria-controls', menu.id);
   function closeMenu(focus = false) {
     menu.hidden = true;
@@ -161,6 +172,10 @@ export function createBoardMenu(options: Options) {
         'storageUnavailable',
         'invalidLibrary',
         'invalidBoard',
+        'pdfUnreadable',
+        'pdfLocked',
+        'pdfTooLarge',
+        'assetStorageFailed',
       ].includes(code)
         ? code
         : 'boardOperationFailed'
@@ -384,7 +399,7 @@ export function createBoardMenu(options: Options) {
     position();
     settings.focus();
   }
-  function transferPanel(key: string) {
+  function transferPanel(key: string): Transfer {
     const { body, actions } = createPanel(key);
     controller = new AbortController();
     const progress = document.createElement('progress');
@@ -453,6 +468,22 @@ export function createBoardMenu(options: Options) {
       }
     });
   });
+  function insertPdf(file: File) {
+    return run(async () => {
+      if (!(await options.prepare(true))) return;
+      const transfer = transferPanel('insertPdf');
+      try {
+        await options.insertPdf(file, transfer);
+      } finally {
+        dismissPanel();
+      }
+    });
+  }
+  pdfInput.addEventListener('change', () => {
+    const file = pdfInput.files?.[0];
+    pdfInput.value = '';
+    if (file) void insertPdf(file);
+  });
   function labels() {
     const current = options.current();
     button.dataset.boardId = current.id;
@@ -491,6 +522,10 @@ export function createBoardMenu(options: Options) {
     closeMenu();
     options.addPage();
   });
+  menu.querySelector('#insertPdf')?.addEventListener('click', () => {
+    closeMenu();
+    pdfInput.click();
+  });
   menu.querySelector('#exportBoard')?.addEventListener('click', () => {
     void exportFile(false);
   });
@@ -505,7 +540,7 @@ export function createBoardMenu(options: Options) {
     closeMenu();
     input.click();
   });
-  for (const id of ['save', 'clear'])
+  for (const id of ['save', 'savePdf', 'clear'])
     menu.querySelector(`#${id}`)?.addEventListener('click', () => closeMenu());
   button.addEventListener('click', () => {
     if (working) return;
@@ -574,6 +609,7 @@ export function createBoardMenu(options: Options) {
     confirm,
     closeMenu,
     isBusy: () => working || Boolean(panel),
+    insertPdf,
     isWorking: () => working,
     isOpen: () => !menu.hidden || Boolean(panel),
     handleKey(event: KeyboardEvent) {
