@@ -34,7 +34,7 @@ async function expectScreenLayout(page) {
     )
     .toEqual({ noPageScroll: true, navigationVisible: true, canvasFits: true, buffersMatch: true });
   expect(
-    await page.locator('.board-navigation button').evaluateAll((buttons) =>
+    await page.locator('.board-navigation button:visible').evaluateAll((buttons) =>
       buttons.every((button) => {
         const rect = button.getBoundingClientRect();
         const target = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);

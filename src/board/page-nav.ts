@@ -18,6 +18,8 @@ export interface PageNavOptions {
   duplicate(): void;
   move(delta: -1 | 1): void;
   remove(): void;
+  /** False while the board is locked: the page number then can't open the Page menu. */
+  editable?(): boolean;
 }
 
 type PageAction = 'add' | 'duplicate' | 'earlier' | 'later' | 'delete';
@@ -125,7 +127,8 @@ export function createPageNav(options: PageNavOptions) {
     index = page;
     total = pages;
     nav.hidden = total <= 1;
-    if (nav.hidden) close(false);
+    if (button) button.disabled = options.editable?.() === false;
+    if (nav.hidden || button?.disabled) close(false);
     if (prev) prev.disabled = index <= 0;
     if (next) next.disabled = index >= total - 1;
     items.get('earlier')!.disabled = index <= 0;

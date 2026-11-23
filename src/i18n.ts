@@ -212,6 +212,13 @@ const english = {
   downloadedPdf: 'Downloaded PDF',
   downloadedPdfReduced: 'Downloaded PDF · resolution reduced on large pages',
   savePdfFailed: 'Could not prepare the PDF',
+  fullScreen: 'Full screen',
+  exitFullScreen: 'Exit full screen',
+  lockBoard: 'Lock board',
+  boardLocked: 'Board locked · press and hold Locked to unlock',
+  lockedPill: 'Locked',
+  holdToUnlock: 'Press and hold to unlock',
+  boardUnlocked: 'Board unlocked',
   minimumZoomReached: 'Minimum zoom reached. Pan to see the rest of the drawing.',
 
   // File
@@ -445,6 +452,13 @@ const translations = {
     downloadedPdf: 'PDF descargado',
     downloadedPdfReduced: 'PDF descargado · resolución reducida en las páginas grandes',
     savePdfFailed: 'No se pudo preparar el PDF',
+    fullScreen: 'Pantalla completa',
+    exitFullScreen: 'Salir de pantalla completa',
+    lockBoard: 'Bloquear pizarra',
+    boardLocked: 'Pizarra bloqueada · mantén pulsado Bloqueada para desbloquear',
+    lockedPill: 'Bloqueada',
+    holdToUnlock: 'Mantén pulsado para desbloquear',
+    boardUnlocked: 'Pizarra desbloqueada',
     minimumZoomReached: 'Zoom mínimo alcanzado. Desplázate para ver el resto del dibujo.',
 
     // File

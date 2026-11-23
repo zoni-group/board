@@ -253,6 +253,9 @@
         </div>
 
         <div class="toolbar" role="toolbar" aria-label="Drawing tools">
+          <button id="unlockBoard" type="button" class="unlock-pill" data-i18n-title="holdToUnlock" title="Press and hold to unlock" hidden>
+            <span class="btn-icon" aria-hidden="true"></span><span data-i18n="lockedPill">Locked</span>
+          </button>
           <div class="board-action-strip">
             <button
               id="pen"
@@ -391,6 +394,7 @@
       <button id="savePdf" type="button" class="menu-item"><span class="btn-icon" aria-hidden="true"></span><span data-i18n="savePdf">Save PDF</span></button>
       <hr />
       <button id="boardSettings" type="button" class="menu-item"><span class="btn-icon" aria-hidden="true"></span><span data-i18n="settingsMenu">Settings…</span></button>
+      <button id="lockBoard" type="button" class="menu-item"><span class="btn-icon" aria-hidden="true"></span><span data-i18n="lockBoard">Lock board</span></button>
       <hr />
       <button id="clear" type="button" class="menu-item destructive"><span class="btn-icon" aria-hidden="true"></span><span data-i18n="clearDrawing">Clear drawing</span></button>
     </div>
@@ -471,6 +475,9 @@
         aria-label="Fit drawing"
         title="Fit drawing"
       >
+        <span class="btn-icon" aria-hidden="true"></span>
+      </button>
+      <button id="fullScreen" type="button" aria-pressed="false" aria-label="Full screen" title="Full screen" hidden>
         <span class="btn-icon" aria-hidden="true"></span>
       </button>
     </div>

@@ -540,7 +540,7 @@ export function createBoardMenu(options: Options) {
     closeMenu();
     input.click();
   });
-  for (const id of ['save', 'savePdf', 'clear'])
+  for (const id of ['save', 'savePdf', 'lockBoard', 'clear'])
     menu.querySelector(`#${id}`)?.addEventListener('click', () => closeMenu());
   button.addEventListener('click', () => {
     if (working) return;
