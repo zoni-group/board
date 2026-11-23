@@ -107,17 +107,23 @@ test('a tap shows the hint; holding the Locked pill unlocks', async ({ page }) =
 
 test('Full screen toggles from the zoom bar where the browser allows it', async ({ page }) => {
   const button = page.locator('#fullScreen');
-  const supported = await page.evaluate(() => Boolean(document.fullscreenEnabled));
+  // The same check as the app: Safari on iPad only has the webkit-prefixed API.
+  const supported = await page.evaluate(() =>
+    Boolean(document.fullscreenEnabled || document.webkitFullscreenEnabled)
+  );
   if (!supported) {
     await expect(button).toBeHidden();
     return;
   }
+  const active = () =>
+    page.evaluate(() => Boolean(document.fullscreenElement ?? document.webkitFullscreenElement));
+  await expect(button).toBeVisible();
   await expect(button).toHaveAttribute('aria-label', 'Full screen');
   await button.click();
-  await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(true);
+  await expect.poll(active).toBe(true);
   await expect(button).toHaveAttribute('aria-label', 'Exit full screen');
   await expect(button).toHaveAttribute('aria-pressed', 'true');
   await button.click();
-  await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(false);
+  await expect.poll(active).toBe(false);
   await expect(button).toHaveAttribute('aria-label', 'Full screen');
 });
