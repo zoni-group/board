@@ -183,6 +183,27 @@ test('draws overlapping and nested shapes, then taps to select and move an exist
   expect((await shapes(page))[0].end).toEqual({ x: 240, y: 180 });
 });
 
+test('a selected shape shows a Move grip that drags it', async ({ page }) => {
+  await seed(page, [{ type: 'shape-set', object: shape({ fill: { color: '#2563eb' } }) }]);
+  await page.locator('#select').click();
+  await page.locator('#pad').click({ position: { x: 140, y: 130 } });
+  const actions = page.locator('.shape-selection-actions');
+  await expect(actions.locator('button:visible')).toHaveText([
+    'Move',
+    'Fill',
+    'Duplicate',
+    'Delete',
+    'Done',
+  ]);
+  const grip = await actions.getByRole('button', { name: 'Move', exact: true }).boundingBox();
+  await page.mouse.move(grip.x + 10, grip.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + 40, grip.y + 30, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => (await shapes(page))[0].start).toEqual({ x: 90, y: 100 });
+  expect((await shapes(page))[0].end).toEqual({ x: 250, y: 200 });
+});
+
 test('keeps controls bounded when selecting a stored shape wider than the current slider range', async ({
   page,
 }) => {

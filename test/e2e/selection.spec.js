@@ -2,6 +2,7 @@ import { boardAction } from '../helpers/board-menu.js';
 import { chooseObject } from '../helpers/object-picker.js';
 import { test, expect } from '@playwright/test';
 import { textObject } from '../helpers/text-fixture.js';
+import { imageObject, tableObject } from '../helpers/content-fixture.js';
 
 const pen = (overrides = {}) => ({
   type: 'stroke',
@@ -448,4 +449,61 @@ test('reports failed object saves, preserves the previous snapshot and retries t
   await page.reload();
   await expect(page.locator('#select')).toBeEnabled();
   expect((await scene(page)).strokes[0].offset).toEqual({ x: 31, y: 20 });
+});
+
+test('every selected object shows a Move grip that drags it', async ({ page }) => {
+  const video = {
+    kind: 'video',
+    id: 'video-1',
+    position: { x: 20, y: 260 },
+    width: 200,
+    height: 112,
+    title: 'Clip',
+    source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+  };
+  await seed(page, [
+    { type: 'content-set', object: imageObject() },
+    { type: 'text-set', object: textObject({ position: { x: 20, y: 190 } }) },
+    { type: 'content-set', object: video },
+    { type: 'content-set', object: { ...tableObject(), position: { x: 20, y: 400 } } },
+    pen({
+      points: [
+        { x: 250, y: 200 },
+        { x: 330, y: 200 },
+      ],
+    }),
+  ]);
+  await page.locator('#select').click();
+  const actions = page.locator('.object-selection-actions');
+  const grip = actions.getByRole('button', { name: 'Move', exact: true });
+  for (const [x, y] of [
+    [40, 210],
+    [120, 316],
+    [100, 430],
+  ]) {
+    await page.locator('#pad').click({ position: { x, y } });
+    await expect(grip).toBeVisible();
+  }
+  // A pen stroke too: drag it by the grip.
+  await page.locator('#pad').click({ position: { x: 290, y: 200 } });
+  await expect(grip).toBeVisible();
+  const strokeGrip = await grip.boundingBox();
+  await page.mouse.move(strokeGrip.x + 10, strokeGrip.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(strokeGrip.x + 30, strokeGrip.y + 50, { steps: 5 });
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await scene(page)).strokes.find((o) => o.id === 'ink-1').offset)
+    .toEqual({ x: 20, y: 40 });
+
+  // Drag the image by its grip.
+  await page.locator('#pad').click({ position: { x: 120, y: 80 } });
+  const rect = await grip.boundingBox();
+  await page.mouse.move(rect.x + 10, rect.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(rect.x + 40, rect.y + 30, { steps: 5 });
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await scene(page)).content.find((o) => o.id === 'image-1').position)
+    .toEqual({ x: 50, y: 50 });
 });

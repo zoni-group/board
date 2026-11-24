@@ -161,6 +161,16 @@ export interface PenStrokeCommand extends StrokeData {
   pen?: 'highlighter';
   /** Stylus pressure (0–1), one value per point; absent for mouse, touch and highlighter. */
   pressure?: number[];
+  /**
+   * Parts already erased when the stroke was made, in the stroke's own coordinates. Only a
+   * duplicated or pasted stroke has them, so the copy looks like the original.
+   */
+  erasures?: StrokeMask[];
+}
+/** An eraser path that hides part of a pen stroke. */
+export interface StrokeMask {
+  size: number;
+  points: Point[];
 }
 export interface EraserStrokeCommand extends StrokeData {
   tool: 'eraser';
@@ -538,9 +548,15 @@ export function normalizeCommand(command: unknown): BoardCommand | null {
   if (command.tool !== 'eraser') {
     const id = typeof command.id === 'string' && command.id ? command.id : null;
     if (!id) return null;
-    if (command.pen === 'highlighter') return { ...base, tool: 'pen', id, pen: 'highlighter' };
     const pressure = normalizePressure(command.pressure, points.length);
-    return pressure ? { ...base, tool: 'pen', id, pressure } : { ...base, tool: 'pen', id };
+    const erasures = normalizeMasks(command.erasures);
+    return {
+      ...base,
+      tool: 'pen',
+      id,
+      ...(command.pen === 'highlighter' ? { pen: 'highlighter' } : pressure ? { pressure } : {}),
+      ...(erasures.length ? { erasures } : {}),
+    };
   }
   return {
     ...base,
@@ -557,6 +573,21 @@ export function normalizeCommand(command: unknown): BoardCommand | null {
 export function normalizeCommands(commands: unknown): BoardCommand[] {
   if (!Array.isArray(commands)) return [];
   return commands.map((command) => normalizeCommand(command)).filter((command) => command !== null);
+}
+
+/** Erasure masks with a valid size and points; anything else is dropped. */
+function normalizeMasks(value: unknown): StrokeMask[] {
+  if (!Array.isArray(value)) return [];
+  const masks: StrokeMask[] = [];
+  for (const mask of value.slice(0, 1000)) {
+    if (!mask || typeof mask !== 'object') continue;
+    const { size, points } = mask as Record<string, unknown>;
+    if (!isFiniteNumber(size) || size <= 0 || size > 1000) continue;
+    if (!Array.isArray(points) || !points.length) continue;
+    const normalized = points.map(normalizePoint);
+    if (normalized.every((point) => point !== null)) masks.push({ size, points: normalized });
+  }
+  return masks;
 }
 
 /** Pressure is kept only when it matches the points; otherwise the stroke draws at an even width. */
@@ -606,6 +637,14 @@ export function cloneCommand(command: BoardCommand): BoardCommand {
             ...command,
             points: command.points.map(clonePoint),
             ...(command.pressure ? { pressure: [...command.pressure] } : {}),
+            ...(command.erasures
+              ? {
+                  erasures: command.erasures.map((mask) => ({
+                    size: mask.size,
+                    points: mask.points.map(clonePoint),
+                  })),
+                }
+              : {}),
           }
         : {
             ...command,

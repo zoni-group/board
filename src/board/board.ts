@@ -27,7 +27,19 @@ import { COLOR_PRESETS } from './presets.ts';
 import { createFillPalette } from './fill-palette.ts';
 import { createSelection } from './selection.ts';
 import { createContentTool } from './content-tool.ts';
-import { createAssetCache, discardAsset, saveAsset } from './assets.ts';
+import { createAssetCache, discardAsset, readAsset, saveAsset } from './assets.ts';
+import type { BoardAsset } from './assets.ts';
+import {
+  centerDelta,
+  cloneItems,
+  copyOffset,
+  itemAssetIds,
+  pasteDelta,
+  placeCopies,
+  withAssetIds,
+} from './clipboard.ts';
+import type { ClipItem } from './clipboard.ts';
+import { IMAGE_TYPES } from './model.ts';
 import { drawContent, contentBounds } from './content.ts';
 import { renderInk } from './ink.ts';
 import { createBoardNavigation } from './navigation.ts';
@@ -54,7 +66,7 @@ import {
   visibleBounds,
   zoomAt,
 } from './viewport.ts';
-import type { BoardViewport } from './viewport.ts';
+import type { BoardBounds, BoardViewport } from './viewport.ts';
 import type {
   BoardCommand,
   BoardSnapshot,
@@ -464,6 +476,7 @@ for (const [id, icon] of [
       syncIroFromInk();
     },
     status: setStatus,
+    duplicate: duplicateSelection,
   });
   const shapeTool = createShapeTool({
     canvas,
@@ -586,6 +599,7 @@ for (const [id, icon] of [
     ink: appliedInkFromRaw,
     status: setStatus,
     insertPdf: (file) => void boardMenu.insertPdf(file),
+    pasteObjects,
   });
 
   function boardSize() {
@@ -923,6 +937,126 @@ for (const [id, icon] of [
     // insertPage gives the copy a new id.
     insertPage(structuredClone(pages[pageIndex]), 'pageDuplicated');
   }
+  /**
+   * Copied objects stay in this tab, so they paste on any page or board. `pastes` counts the
+   * copies placed so far, for the cascade; Cut starts one lower so its first paste lands in place.
+   */
+  let clip: {
+    items: ClipItem[];
+    bounds: BoardBounds;
+    boardId: string;
+    pageId: string;
+    pastes: number;
+    /** When it was copied, so the copy event right after can mark the system clipboard. */
+    at: number;
+    /** Media read when cutting, in case the original is gone by the time it is pasted. */
+    assets: Map<string, Promise<BoardAsset | null>>;
+    /** Media already stored on other boards, by board id. */
+    copied: Map<string, Map<string, string>>;
+  } | null = null;
+  let pasting = false,
+    pasteFallback: number | undefined;
+  const canCopy = () => boardReady && editable() && !boardMenu?.isWorking();
+  /** Adds the copies in one undo step and selects them. */
+  function placeItems(items: ClipItem[], delta: Point) {
+    const { commands, refs } = placeCopies(items, delta);
+    if (!commands.length) return 0;
+    pushHistoryCommand(commands.length > 1 ? { type: 'batch', commands } : commands[0]);
+    redrawCanvas();
+    void queueBoardPersistence();
+    // The Shapes tool selects its own shapes; anything else shows with Select.
+    if (tool !== 'select' && !(tool === 'shapes' && refs.length === 1 && refs[0].kind === 'shape'))
+      selectTool('select');
+    selection.selectAll(refs);
+    return refs.length;
+  }
+  function duplicateSelection() {
+    if (!canCopy()) return;
+    const snapshot = selection.snapshot();
+    if (!snapshot) return;
+    const offset = copyOffset(snapshot.items);
+    const count = placeItems(snapshot.items, { x: offset, y: offset });
+    setStatus(count === 1 ? t('objectDuplicated') : t('objectsDuplicated', { count }));
+  }
+  function copySelection(cut: boolean) {
+    if (!canCopy() || !boardSession) return false;
+    const snapshot = selection.snapshot();
+    if (!snapshot) return false;
+    const items = cloneItems(snapshot.items);
+    clip = {
+      items,
+      bounds: snapshot.bounds,
+      boardId: boardSession.record.id,
+      pageId: pages[pageIndex].id,
+      pastes: cut ? -1 : 0,
+      at: performance.now(),
+      assets: new Map(cut ? itemAssetIds(items).map((id) => [id, readAsset(id)]) : []),
+      copied: new Map(),
+    };
+    if (cut) selection.removeSelected();
+    const count = items.length;
+    setStatus(
+      count === 1
+        ? t(cut ? 'objectCut' : 'objectCopied')
+        : t(cut ? 'objectsCut' : 'objectsCopied', { count })
+    );
+    return true;
+  }
+  /** Media lives with its board: pasting into another board stores its own copy first. */
+  async function assetsFor(current: NonNullable<typeof clip>, boardId: string) {
+    const ids = itemAssetIds(current.items);
+    if (current.boardId === boardId || !ids.length) return current.items;
+    const stored = current.copied.get(boardId) ?? new Map<string, string>();
+    for (const id of ids) {
+      if (stored.has(id)) continue;
+      const asset = await (current.assets.get(id) ?? readAsset(id));
+      if (!asset) throw new Error('missing');
+      stored.set(id, await saveAsset(boardId, asset));
+    }
+    current.copied.set(boardId, stored);
+    return withAssetIds(current.items, stored);
+  }
+  async function pasteClip() {
+    window.clearTimeout(pasteFallback);
+    pasteFallback = undefined;
+    const current = clip;
+    if (!current || pasting || !canCopy() || !boardSession) return;
+    const session = boardSession,
+      boardId = session.record.id,
+      pageId = pages[pageIndex].id;
+    pasting = true;
+    try {
+      let items: ClipItem[];
+      try {
+        items = await assetsFor(current, boardId);
+      } catch {
+        setStatus(t('pasteFailed'));
+        return;
+      }
+      if (session !== boardSession || pageId !== pages[pageIndex].id || !canCopy()) return;
+      const size = boardSize();
+      const visible = visibleBounds(viewport ?? initialViewport(size), size);
+      // Same page: next to the last copy while it is in view; elsewhere, centred in the view.
+      const delta =
+        current.boardId === boardId && current.pageId === pageId
+          ? pasteDelta(items, current.bounds, visible, current.pastes + 1)
+          : centerDelta(items, current.bounds, visible);
+      current.pastes++;
+      const count = placeItems(items, delta);
+      setStatus(count === 1 ? t('objectPasted') : t('objectsPasted', { count }));
+    } finally {
+      pasting = false;
+    }
+  }
+  /** The board's paste event: board objects, unless the clipboard holds a newer image. */
+  function pasteObjects(data: DataTransfer | null) {
+    window.clearTimeout(pasteFallback);
+    pasteFallback = undefined;
+    if (!clip) return false;
+    if (Array.from(data?.files ?? []).some((file) => IMAGE_TYPES.includes(file.type))) return false;
+    void pasteClip();
+    return true;
+  }
   function movePage(delta: -1 | 1) {
     const target = pageIndex + delta;
     if (!boardReady || target < 0 || target >= pages.length || !leavePage()) return;
@@ -950,7 +1084,13 @@ for (const [id, icon] of [
     cleanupTimer = window.setTimeout(() => void cleanUpAssets(), delay);
   }
   async function cleanUpAssets() {
-    if (!boardReady || !boardSession || contentTool.isEditing() || boardMenu.isWorking()) {
+    if (
+      !boardReady ||
+      !boardSession ||
+      pasting ||
+      contentTool.isEditing() ||
+      boardMenu.isWorking()
+    ) {
       if (boardSession) scheduleAssetCleanup();
       return;
     }
@@ -2100,8 +2240,31 @@ for (const [id, icon] of [
     if (key === 'y') {
       event.preventDefault();
       redo();
+      return;
+    }
+    if (event.altKey || event.shiftKey) return;
+    if (key === 'd' && selection.count()) {
+      // Also keeps the browser's bookmark dialog away.
+      event.preventDefault();
+      duplicateSelection();
+    } else if ((key === 'c' || key === 'x') && selection.count()) {
+      // Not prevented: the copy event that follows marks the system clipboard as ours.
+      copySelection(key === 'x');
+    } else if (key === 'v' && clip && canCopy()) {
+      // The paste event normally handles it (and images from other apps); some browsers send
+      // none without a text field, so paste anyway if it hasn't come.
+      window.clearTimeout(pasteFallback);
+      pasteFallback = window.setTimeout(() => void pasteClip(), 150);
     }
   });
+  // A copy made here replaces what the system clipboard held, so an older image doesn't win.
+  for (const type of ['copy', 'cut'] as const)
+    document.addEventListener(type, (event) => {
+      if (!clip || performance.now() - clip.at > 1000 || !event.clipboardData) return;
+      if (isEditableElement(document.activeElement)) return;
+      event.clipboardData.setData('application/x-zoni-board', '1');
+      event.preventDefault();
+    });
 
   // Init
   syncSizePreview();

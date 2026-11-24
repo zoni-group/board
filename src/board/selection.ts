@@ -43,6 +43,8 @@ import {
 import { boxPolygon, objectsInRegion } from './marquee.ts';
 import type { BoardBounds, BoardViewport } from './viewport.ts';
 import { panelArea } from './screen-layout.ts';
+import { strokeFromInk } from './clipboard.ts';
+import type { ClipItem } from './clipboard.ts';
 
 type SelectedObject =
   | { kind: 'stroke'; value: InkObject }
@@ -68,6 +70,8 @@ interface SelectionOptions {
   beginGrip(event: PointerEvent, ref: BoardObjectRef): void;
   status(message: string): void;
   fillPalette: FillPalette;
+  /** The Duplicate button: copy the selection next to itself. */
+  duplicate(): void;
 }
 type Drag = { id: number; start: Point; latest: Point; original: SelectedObject; handle: number };
 type GroupDrag = { id: number; start: Point; latest: Point; originals: SelectedObject[] };
@@ -116,17 +120,19 @@ export function createSelection(options: SelectionOptions) {
   const move = document.createElement('button'),
     edit = document.createElement('button'),
     fill = document.createElement('button'),
+    duplicate = document.createElement('button'),
     remove = document.createElement('button'),
     done = document.createElement('button');
-  for (const button of [move, edit, fill, remove, done]) button.type = 'button';
+  for (const button of [move, edit, fill, duplicate, remove, done]) button.type = 'button';
   move.className = 'selection-move';
+  duplicate.className = 'selection-duplicate';
   // Fill for a selected closed shape: the chip previews it and opens the fill palette.
   fill.className = 'selection-fill';
   fill.hidden = true;
   fill.setAttribute('aria-haspopup', 'dialog');
   fill.setAttribute('aria-expanded', 'false');
   fill.innerHTML = '<span aria-hidden="true"></span><span></span>';
-  actions.append(move, edit, fill, remove, done);
+  actions.append(move, edit, fill, duplicate, remove, done);
   document.body.append(actions);
   function lookup(target: BoardObjectRef | null = ref): SelectedObject | null {
     if (!target) return null;
@@ -423,7 +429,8 @@ export function createSelection(options: SelectionOptions) {
         handle.style.top = `${(corner.y - area.y) * view.zoom}px`;
       }
     });
-    move.hidden = !(object.kind === 'text' && options.tool() === 'text');
+    // Every object gets a grip to drag by, for the ones that are thin, small or edit on a tap.
+    move.hidden = false;
     edit.hidden = object.kind === 'stroke' || object.kind === 'shape' || object.kind === 'image';
     edit.textContent = t(object.kind === 'video' ? 'playVideo' : 'editText');
     done.hidden = object.kind === 'text' && options.tool() === 'text';
@@ -446,6 +453,7 @@ export function createSelection(options: SelectionOptions) {
   function labels() {
     move.textContent = t('moveText');
     edit.textContent = t('editText');
+    duplicate.textContent = t('duplicate');
     remove.textContent = t('deleteText');
     fill.lastElementChild!.textContent = t('fill');
     done.textContent = t('doneText');
@@ -712,6 +720,7 @@ export function createSelection(options: SelectionOptions) {
   }
   edit.addEventListener('click', editSelected);
   remove.addEventListener('click', removeSelected);
+  duplicate.addEventListener('click', () => options.duplicate());
   fill.addEventListener('click', () => {
     flushStyle();
     const original = lookup();
@@ -753,6 +762,45 @@ export function createSelection(options: SelectionOptions) {
     /** Number of selected objects (a group counts each member). */
     count: () => (group ? groupObjects().length : lookup() ? 1 : 0),
     select,
+    /** Selects these objects: one on its own, several as a group. */
+    selectAll(refs: BoardObjectRef[]) {
+      if (refs.length > 1) selectGroup(refs);
+      else select(refs[0] ?? null);
+    },
+    /** Copies of the selected objects, in paint order, and the area they cover. */
+    snapshot(): { items: ClipItem[]; bounds: BoardBounds } | null {
+      flushStyle();
+      const scene = options.scene();
+      // Paint order within each kind, so overlapping copies stack like the originals.
+      const order = (object: SelectedObject) =>
+        (object.kind === 'stroke'
+          ? scene.strokes
+          : object.kind === 'shape'
+            ? scene.shapes
+            : object.kind === 'text'
+              ? scene.text
+              : scene.content
+        ).findIndex((value) => value.id === object.value.id);
+      const objects = (group ? groupObjects() : [lookup()].filter((o) => o !== null)).sort(
+        (a, b) => order(a) - order(b)
+      );
+      if (!objects.length) return null;
+      const items = objects.map((object): ClipItem => {
+        switch (object.kind) {
+          case 'stroke':
+            return { kind: 'stroke', value: strokeFromInk(object.value) };
+          case 'shape':
+            return { kind: 'shape', value: cloneShapeObject(object.value) };
+          case 'text':
+            return { kind: 'text', value: cloneTextObject(object.value) };
+          default:
+            return { kind: 'content', value: cloneContentObject(object.value) };
+        }
+      });
+      return { items, bounds: objects.map(bounds).reduce(unionBounds) };
+    },
+    /** Deletes the selection (Cut). */
+    removeSelected,
     clear,
     paint,
     begin,
