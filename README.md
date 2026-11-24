@@ -14,7 +14,7 @@ It is optimized for touch screens, with pen/eraser tools, editable rich text, pa
 What it does:
 
 - full-screen drawing canvas with pen types (pen, see-through highlighter, fading laser pointer) and an eraser
-- brush size control, preset swatches, and an `iro` color picker
+- brush size control (while the eraser is selected, the same slider sets the eraser's own, larger size), preset swatches, and an `iro` color picker
 - editable, movable text blocks with selected-word formatting
 - images, formatted tables, and video cards through the Text button's **Add object** picker
 - undo, redo, clear, PNG download, and PDF import/export (one board page per PDF page)

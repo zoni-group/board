@@ -592,7 +592,8 @@ label{
     position: relative;
     display: block;
     width: clamp(14px, calc(14px + var(--board-size-preview) * 1.8), 48px);
-    height: var(--board-size-preview);
+    /* Capped so a large eraser size doesn't grow the toolbar row. */
+    height: min(var(--board-size-preview), 22px);
     min-height: 2px;
     border-radius: 999px;
     background: color-mix(in srgb, var(--ink) 90%, var(--btn-fg));

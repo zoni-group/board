@@ -246,18 +246,24 @@ for (const [id, icon] of [
     pen: 'zoni_board_pen_size',
     highlighter: 'zoni_board_highlighter_size',
   };
-  function storedSize(slot: InkSlot, fallback: number) {
-    const value = Number(loadText(LS_SLOT_SIZE[slot]));
-    return Number.isFinite(value) && value >= 2 && value <= 22 ? value : fallback;
+  // The eraser shares the size slider but has its own, larger range and remembered size.
+  type SizeRange = { min: number; max: number };
+  const PEN_RANGE: SizeRange = { min: 2, max: 22 };
+  const ERASER_RANGE: SizeRange = { min: 4, max: 80 };
+  const LS_ERASER_SIZE = 'zoni_board_eraser_size';
+  function storedSize(key: string, fallback: number, range = PEN_RANGE) {
+    const value = Number(loadText(key));
+    return Number.isFinite(value) && value >= range.min && value <= range.max ? value : fallback;
   }
   const inkSlots: Record<InkSlot, { inkRaw: string; size: number }> = {
-    pen: { inkRaw, size: storedSize('pen', Number(sizeEl.value) || 6) },
+    pen: { inkRaw, size: storedSize(LS_SLOT_SIZE.pen, Number(sizeEl.value) || 6) },
     highlighter: {
       inkRaw:
         normalizeHex(loadText(LS_SLOT_INK.highlighter)) || (isDarkMode() ? '#fbbf24' : '#f59e0b'),
-      size: storedSize('highlighter', 18),
+      size: storedSize(LS_SLOT_SIZE.highlighter, 18),
     },
   };
+  let eraserSize = storedSize(LS_ERASER_SIZE, 24, ERASER_RANGE);
   const storedPenKind = loadText(LS_PEN_KIND);
   const PEN_KINDS: PenKind[] = ['pen', 'highlighter', 'laser'];
   let penKind: PenKind = isKind(PEN_KINDS, storedPenKind) ? storedPenKind : 'pen';
@@ -273,8 +279,34 @@ for (const [id, icon] of [
     inkSlots[inkSlot()].inkRaw = inkRaw;
     saveText(LS_SLOT_INK[inkSlot()], inkRaw);
   }
+  /** The slider's value, kept inside its current range. */
+  function sliderSize() {
+    const min = Number(sizeEl.min) || PEN_RANGE.min,
+      max = Number(sizeEl.max) || PEN_RANGE.max;
+    return Math.max(min, Math.min(max, Number(sizeEl.value) || 6));
+  }
+  function showSize(size: number) {
+    sizeEl.value = String(size);
+    sizePreview.style.setProperty('--board-size-preview', `${size}px`);
+    sizeEl.setAttribute('aria-valuetext', String(size));
+  }
+  /** Point the slider at the eraser's size while erasing, otherwise at the pen's. */
+  let sliderOnEraser = false;
+  function syncSizeControl() {
+    const erasing = tool === 'eraser';
+    sliderOnEraser = erasing;
+    const range = erasing ? ERASER_RANGE : PEN_RANGE;
+    sizeEl.min = String(range.min);
+    sizeEl.max = String(range.max);
+    showSize(erasing ? eraserSize : inkSlots[inkSlot()].size);
+  }
   function rememberSize() {
-    const size = Math.max(2, Math.min(22, Number(sizeEl.value) || 6));
+    const size = sliderSize();
+    if (tool === 'eraser') {
+      eraserSize = size;
+      saveText(LS_ERASER_SIZE, String(size));
+      return;
+    }
     inkSlots[inkSlot()].size = size;
     saveText(LS_SLOT_SIZE[inkSlot()], String(size));
   }
@@ -621,6 +653,8 @@ for (const [id, icon] of [
 
   function setActive(options: ToolOptions = {}) {
     const shouldAnnounce = options.announce !== false;
+    // Only on the way into or out of the eraser, so Select keeps showing the selection's size.
+    if ((tool === 'eraser') !== sliderOnEraser) syncSizeControl();
     textBtn.setAttribute('aria-pressed', tool === 'text' ? 'true' : 'false');
     penBtn.setAttribute('aria-pressed', tool === 'pen' ? 'true' : 'false');
     eraseBtn.setAttribute('aria-pressed', tool === 'eraser' ? 'true' : 'false');
@@ -669,9 +703,14 @@ for (const [id, icon] of [
 
   function syncSizePreview() {
     if (!sizeEl || !sizePreview) return;
-    const sizeValue = Math.max(2, Math.min(22, Number(sizeEl.value) || 6));
+    const sizeValue = sliderSize();
     sizePreview.style.setProperty('--board-size-preview', `${sizeValue}px`);
     sizeEl.setAttribute('aria-valuetext', `${sizeValue}`);
+    if (tool === 'eraser') {
+      // Resizing the eraser keeps the eraser.
+      eraserSize = sizeValue;
+      return;
+    }
     selection.updateStyle({ size: sizeValue });
     activatePenTool({ announce: true });
   }
@@ -1390,7 +1429,7 @@ for (const [id, icon] of [
     currentStroke = {
       type: 'stroke',
       tool: 'eraser',
-      size: parseInt(sizeEl.value || '6', 10),
+      size: eraserSize,
       inkRaw,
       points: [clonePoint(last)],
     };
@@ -1399,7 +1438,7 @@ for (const [id, icon] of [
         type: 'stroke',
         tool: 'pen',
         id: crypto.randomUUID(),
-        size: currentStroke.size,
+        size: parseInt(sizeEl.value || '6', 10),
         inkRaw,
         points: currentStroke.points,
         ...(penKind === 'highlighter' ? { pen: 'highlighter' as const } : {}),
@@ -1850,9 +1889,7 @@ for (const [id, icon] of [
     saveText(LS_PEN_KIND, penKind);
     penPicker.setKind(penKind);
     const slot = inkSlots[inkSlot()];
-    sizeEl.value = String(slot.size);
-    sizePreview.style.setProperty('--board-size-preview', `${slot.size}px`);
-    sizeEl.setAttribute('aria-valuetext', String(slot.size));
+    syncSizeControl();
     inkRaw = slot.inkRaw;
     applyInk();
     setPopupFromInkRaw();

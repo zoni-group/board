@@ -146,3 +146,32 @@ test('a second finger cancels an unfinished highlight or laser trail', async ({ 
   await pointer(page, 'pointerup', 3, 160, 100);
   expect(await commands(page)).toEqual([]);
 });
+
+test('the eraser has its own size, set with the same slider', async ({ page }) => {
+  const size = page.locator('#size');
+  await selectPen(page);
+  await expect(size).toHaveValue('6');
+  await page.locator('#erase').click();
+  await expect(size).toHaveValue('24');
+  await expect(size).toHaveAttribute('max', '80');
+  await size.fill('60');
+  await size.dispatchEvent('change');
+  // Resizing keeps the eraser instead of switching back to the pen.
+  await expect(page.locator('#erase')).toHaveAttribute('aria-pressed', 'true');
+  await drag(page, { x: 60, y: 140 }, { x: 260, y: 140 });
+  await expect
+    .poll(async () => (await commands(page)).at(-1))
+    .toMatchObject({
+      tool: 'eraser',
+      size: 60,
+    });
+
+  await page.locator('#pen').click();
+  await expect(size).toHaveValue('6');
+  await expect(size).toHaveAttribute('max', '22');
+
+  await page.reload();
+  await expect(page.locator('#boards')).toBeEnabled();
+  await page.locator('#erase').click();
+  await expect(size).toHaveValue('60');
+});
