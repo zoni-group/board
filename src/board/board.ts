@@ -38,6 +38,7 @@ import {
   createBoardScene,
   createDrawingCanvas,
   drawStroke,
+  drawStrokeSegment,
 } from './scene-renderer.ts';
 import type { BoardScene } from './scene-renderer.ts';
 import {
@@ -1402,6 +1403,16 @@ for (const [id, icon] of [
     return screenToWorld({ x: ev.clientX - r.left, y: ev.clientY - r.top }, viewport!, boardSize());
   }
 
+  /**
+   * A stylus's pressure (0–1), smoothed against the previous value so the width doesn't
+   * jitter. Null for mouse and touch, and for a stylus that reports no pressure.
+   */
+  function stylusPressure(ev: PointerEvent, previous: number | null): number | null {
+    if (ev.pointerType !== 'pen' || !(ev.pressure > 0)) return null;
+    const value = previous === null ? ev.pressure : previous * 0.6 + ev.pressure * 0.4;
+    return Math.round(Math.min(1, value) * 100) / 100;
+  }
+
   function start(ev: PointerEvent) {
     if (!boardReady || !editable()) return;
     if (tool === 'select') {
@@ -1433,6 +1444,7 @@ for (const [id, icon] of [
       inkRaw,
       points: [clonePoint(last)],
     };
+    const pressure = stylusPressure(ev, null);
     if (tool === 'pen')
       currentStroke = {
         type: 'stroke',
@@ -1441,7 +1453,11 @@ for (const [id, icon] of [
         size: parseInt(sizeEl.value || '6', 10),
         inkRaw,
         points: currentStroke.points,
-        ...(penKind === 'highlighter' ? { pen: 'highlighter' as const } : {}),
+        ...(penKind === 'highlighter'
+          ? { pen: 'highlighter' as const }
+          : pressure !== null
+            ? { pressure: [pressure] }
+            : {}),
       };
     if (currentStroke.tool === 'eraser') {
       currentStroke.erasedTextIds = textTool.erase(last, last, currentStroke.size / 2);
@@ -1476,6 +1492,20 @@ for (const [id, icon] of [
     if (!drawing || !currentStroke || !last) return;
     const p = pos(ev);
     currentStroke.points.push(clonePoint(p));
+    if (currentStroke.tool === 'pen' && currentStroke.pressure) {
+      const pressure = currentStroke.pressure;
+      pressure.push(
+        stylusPressure(ev, pressure[pressure.length - 1]) ?? pressure[pressure.length - 1]
+      );
+      drawStrokeSegment(
+        ctx,
+        currentStroke as typeof currentStroke & { pressure: number[] },
+        currentStroke.points.length - 1,
+        renderedInk
+      );
+      last = p;
+      return;
+    }
     if (currentStroke.tool === 'eraser') {
       currentStroke.erasedTextIds = [
         ...new Set([

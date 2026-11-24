@@ -175,3 +175,66 @@ test('the eraser has its own size, set with the same slider', async ({ page }) =
   await page.locator('#erase').click();
   await expect(size).toHaveValue('60');
 });
+
+async function stylus(page, y, pressure) {
+  const rect = await page.locator('#pad').boundingBox();
+  const send = (type, x) =>
+    page.locator('#pad').dispatchEvent(type, {
+      pointerId: 7,
+      pointerType: 'pen',
+      isPrimary: true,
+      pressure: type === 'pointerup' ? 0 : pressure,
+      clientX: rect.x + x,
+      clientY: rect.y + y,
+      button: 0,
+      buttons: type === 'pointerup' ? 0 : 1,
+      bubbles: true,
+    });
+  await send('pointerdown', 60);
+  for (let x = 80; x <= 260; x += 20) await send('pointermove', x);
+  await send('pointerup', 260);
+}
+/** How many CSS pixels tall the ink is in the canvas column at x, around y. */
+async function thickness(page, x, y) {
+  return page.locator('#pad').evaluate(
+    (canvas, { x, y }) => {
+      const ratio = devicePixelRatio,
+        top = Math.round((y - 30) * ratio),
+        height = Math.round(60 * ratio);
+      const data = canvas.getContext('2d').getImageData(Math.round(x * ratio), top, 1, height).data;
+      let inked = 0;
+      for (let index = 0; index < data.length; index += 4)
+        if (data[index] + data[index + 1] + data[index + 2] < 600) inked++;
+      return inked / ratio;
+    },
+    { x, y }
+  );
+}
+
+test('a stylus draws thicker lines the harder it presses', async ({ page }) => {
+  await selectPen(page);
+  await expect(page.locator('#size')).toHaveValue('6');
+  await stylus(page, 100, 0.1);
+  await stylus(page, 220, 1);
+  await drag(page, { x: 60, y: 320 }, { x: 260, y: 320 });
+  await expect.poll(async () => (await commands(page)).length).toBe(3);
+  const [light, firm, mouse] = await commands(page);
+  expect(light.pressure).toHaveLength(light.points.length);
+  expect(Math.max(...light.pressure)).toBeLessThanOrEqual(0.1);
+  expect(Math.min(...firm.pressure.slice(-3))).toBeGreaterThan(0.9);
+  expect(mouse.pressure).toBeUndefined();
+
+  const lightWidth = await thickness(page, 200, 100),
+    firmWidth = await thickness(page, 200, 220),
+    mouseWidth = await thickness(page, 200, 320);
+  expect(lightWidth).toBeGreaterThan(0);
+  // A mouse line stays at the chosen size, between a light and a firm stylus line.
+  expect(mouseWidth).toBeGreaterThan(lightWidth);
+  expect(firmWidth).toBeGreaterThan(mouseWidth);
+  expect(firmWidth - lightWidth).toBeGreaterThanOrEqual(4);
+
+  await page.reload();
+  await expect(page.locator('#boards')).toBeEnabled();
+  expect((await commands(page))[1].pressure).toEqual(firm.pressure);
+  await expect.poll(() => thickness(page, 200, 220)).toBe(firmWidth);
+});

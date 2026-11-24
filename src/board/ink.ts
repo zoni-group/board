@@ -227,7 +227,14 @@ export function strokeBounds(stroke: StrokeCommand): BoardBounds {
     right = Math.max(right, point.x);
     bottom = Math.max(bottom, point.y);
   }
-  const radius = Math.max(1, stroke.size / 2);
+  const widest =
+    stroke.tool === 'pen' && stroke.pressure
+      ? pressureWidth(
+          stroke.size,
+          stroke.pressure.reduce((a, b) => Math.max(a, b), 0)
+        )
+      : stroke.size;
+  const radius = Math.max(1, widest / 2);
   const bounds = {
     x: left - radius,
     y: top - radius,
@@ -263,18 +270,63 @@ export function applyStrokeStyle(
       assertNever(stroke);
   }
 }
+/** Stylus pressure scales the chosen size: half pressure draws at exactly that size. */
+export function pressureWidth(size: number, pressure: number): number {
+  return size * (0.3 + 1.4 * pressure);
+}
+const midpoint = (a: Point, b: Point): Point => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
+/**
+ * One piece of a pressure stroke, with the same curve as the single-path drawing: piece
+ * `index` (1 … points.length - 1) ends halfway to point `index`; piece `points.length` is the
+ * straight tail to the last point. Round caps join the pieces into one line.
+ */
+export function drawStrokeSegment(
+  ctx: CanvasRenderingContext2D,
+  stroke: PenStrokeCommand & { pressure: number[] },
+  index: number,
+  ink: InkColor
+): void {
+  const { points, pressure } = stroke;
+  if (index < 1 || index > points.length || points.length < 2) return;
+  const control = points[index - 1];
+  const from = index === 1 ? points[0] : midpoint(points[index - 2], control);
+  ctx.save();
+  applyStrokeStyle(ctx, stroke, ink);
+  ctx.lineWidth = pressureWidth(stroke.size, pressure[index - 1] ?? 0.5);
+  ctx.beginPath();
+  ctx.moveTo(from.x, from.y);
+  if (index === points.length) ctx.lineTo(control.x, control.y);
+  else {
+    const to = midpoint(control, points[index]);
+    ctx.quadraticCurveTo(control.x, control.y, to.x, to.y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
 export function drawStroke(
   ctx: CanvasRenderingContext2D,
   stroke: StrokeCommand,
   ink: InkColor
 ): void {
   if (!stroke.points.length) return;
+  if (stroke.tool === 'pen' && stroke.pressure && stroke.points.length > 1) {
+    const pressured = stroke as PenStrokeCommand & { pressure: number[] };
+    for (let index = 1; index <= stroke.points.length; index++)
+      drawStrokeSegment(ctx, pressured, index, ink);
+    return;
+  }
   ctx.save();
   applyStrokeStyle(ctx, stroke, ink);
   ctx.beginPath();
   const first = stroke.points[0];
   if (stroke.points.length === 1) {
-    ctx.arc(first.x, first.y, Math.max(1, stroke.size / 2), 0, Math.PI * 2);
+    const dot =
+      stroke.tool === 'pen' && stroke.pressure
+        ? pressureWidth(stroke.size, stroke.pressure[0])
+        : stroke.size;
+    ctx.arc(first.x, first.y, Math.max(1, dot / 2), 0, Math.PI * 2);
     ctx.fill();
   } else {
     ctx.moveTo(first.x, first.y);

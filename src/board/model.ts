@@ -124,6 +124,8 @@ export interface PenStrokeCommand extends StrokeData {
   id: string;
   /** Absent for regular ink. */
   pen?: 'highlighter';
+  /** Stylus pressure (0–1), one value per point; absent for mouse, touch and highlighter. */
+  pressure?: number[];
 }
 export interface EraserStrokeCommand extends StrokeData {
   tool: 'eraser';
@@ -470,9 +472,9 @@ export function normalizeCommand(command: unknown): BoardCommand | null {
   if (command.tool !== 'eraser') {
     const id = typeof command.id === 'string' && command.id ? command.id : null;
     if (!id) return null;
-    return command.pen === 'highlighter'
-      ? { ...base, tool: 'pen', id, pen: 'highlighter' }
-      : { ...base, tool: 'pen', id };
+    if (command.pen === 'highlighter') return { ...base, tool: 'pen', id, pen: 'highlighter' };
+    const pressure = normalizePressure(command.pressure, points.length);
+    return pressure ? { ...base, tool: 'pen', id, pressure } : { ...base, tool: 'pen', id };
   }
   return {
     ...base,
@@ -489,6 +491,13 @@ export function normalizeCommand(command: unknown): BoardCommand | null {
 export function normalizeCommands(commands: unknown): BoardCommand[] {
   if (!Array.isArray(commands)) return [];
   return commands.map((command) => normalizeCommand(command)).filter((command) => command !== null);
+}
+
+/** Pressure is kept only when it matches the points; otherwise the stroke draws at an even width. */
+function normalizePressure(value: unknown, length: number): number[] | null {
+  if (!Array.isArray(value) || value.length !== length) return null;
+  if (!value.every((p) => isFiniteNumber(p) && p >= 0 && p <= 1)) return null;
+  return value as number[];
 }
 
 export function clonePoint(point: Point): Point {
@@ -527,7 +536,11 @@ export function cloneCommand(command: BoardCommand): BoardCommand {
       return { type: 'text-delete', ids: [...command.ids] };
     case 'stroke':
       return command.tool === 'pen'
-        ? { ...command, points: command.points.map(clonePoint) }
+        ? {
+            ...command,
+            points: command.points.map(clonePoint),
+            ...(command.pressure ? { pressure: [...command.pressure] } : {}),
+          }
         : {
             ...command,
             points: command.points.map(clonePoint),
