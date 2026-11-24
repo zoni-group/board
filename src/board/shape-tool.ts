@@ -1,19 +1,24 @@
 import { t } from '../i18n.ts';
 import { ShapeIcons } from '../icons.ts';
 import { applyButtonIcon } from '../shared/tools-menu.ts';
-import { normalizeShapeObject } from './model.ts';
-import type { BoardCommand, Point, ShapeKind, ShapeObject } from './model.ts';
+import { normalizeShapeFill, normalizeShapeObject } from './model.ts';
+import type { BoardCommand, Point, ShapeFill, ShapeKind, ShapeObject } from './model.ts';
+import { loadText, saveText } from '../shared/storage.ts';
+import { fillName, renderFillChip } from './fill-palette.ts';
+import type { FillPalette } from './fill-palette.ts';
 import { applyViewport, boundsIntersect, screenToWorld, visibleBounds } from './viewport.ts';
 import type { BoardViewport } from './viewport.ts';
 import type { SelectionController } from './selection.ts';
 import { constrainPopup } from './screen-layout.ts';
 import {
+  alignToGrid,
   boxBounds,
   constrainedEnd,
   drawShape,
   hitShape,
   intersectsShape,
   isBox,
+  isFillable,
   shapeBounds,
   hitShapeHandle,
 } from './shapes.ts';
@@ -29,6 +34,17 @@ interface ShapeToolOptions {
   ink(raw: string): string;
   commit(command: BoardCommand): Promise<boolean>;
   status(message: string): void;
+  fillPalette: FillPalette;
+  /** Grid or dot spacing of the paper, or null on blank and lined paper. */
+  gridStep(): number | null;
+}
+const LS_SHAPE_FILL = 'zoni_board_shape_fill';
+function storedFill(): ShapeFill | null {
+  try {
+    return normalizeShapeFill(JSON.parse(loadText(LS_SHAPE_FILL) || 'null'));
+  } catch {
+    return null;
+  }
 }
 type Drag = {
   id: number;
@@ -71,8 +87,28 @@ export function createShapeTool(options: ShapeToolOptions) {
     picker.append(choice);
     return choice;
   });
+  // Fill for the next closed shapes; remembered on this device.
+  let nextFill = storedFill();
+  const fillRow = document.createElement('button');
+  fillRow.type = 'button';
+  fillRow.className = 'shape-fill-row';
+  fillRow.setAttribute('aria-haspopup', 'dialog');
+  fillRow.setAttribute('aria-expanded', 'false');
+  fillRow.innerHTML = '<span aria-hidden="true"></span><span></span>';
+  fillRow.addEventListener('click', () =>
+    options.fillPalette.toggle(fillRow, nextFill, options.style().inkRaw, (fill) => {
+      nextFill = fill;
+      saveText(LS_SHAPE_FILL, fill ? JSON.stringify(fill) : '');
+      labels();
+    })
+  );
+  picker.append(fillRow);
   document.body.append(picker);
   function labels() {
+    renderFillChip(fillRow.firstElementChild as HTMLElement, nextFill, options.style().inkRaw);
+    fillRow.lastElementChild!.textContent = t('fill');
+    fillRow.setAttribute('aria-label', t('fillWith', { color: fillName(nextFill) }));
+    fillRow.title = fillRow.getAttribute('aria-label')!;
     picker.setAttribute('aria-label', t('shapes'));
     applyButtonIcon(button, ShapeIcons[kind]);
     button.title = `${t('shapes')} · ${t(kind)}`;
@@ -105,6 +141,7 @@ export function createShapeTool(options: ShapeToolOptions) {
     });
   }
   function closePicker(focus = true) {
+    options.fillPalette.close();
     picker.hidden = true;
     button.setAttribute('aria-expanded', 'false');
     paint();
@@ -145,6 +182,7 @@ export function createShapeTool(options: ShapeToolOptions) {
     const current = point(event);
     drag.latest = current;
     drag.object.end = constrainedEnd(drag.object.kind, drag.start, current, event.shiftKey);
+    drag.object = alignToGrid({ ...drag.object, start: drag.start });
     paint();
   }
   function start(event: PointerEvent) {
@@ -172,7 +210,10 @@ export function createShapeTool(options: ShapeToolOptions) {
       start: current,
       end: { ...current },
       ...options.style(),
+      ...(nextFill && isFillable(kind) ? { fill: { ...nextFill } } : {}),
     };
+    const step = options.gridStep();
+    if (step && (kind === 'numberLine' || kind === 'axes')) shape.step = step;
     drag = {
       id: event.pointerId,
       selectOnTap: tapped?.id,
@@ -210,7 +251,8 @@ export function createShapeTool(options: ShapeToolOptions) {
     if (
       !picker.hidden &&
       !event.composedPath().includes(picker) &&
-      !event.composedPath().includes(button)
+      !event.composedPath().includes(button) &&
+      !event.composedPath().some((node) => node instanceof Element && node.id === 'fillPalette')
     )
       closePicker(false);
   });
@@ -226,7 +268,7 @@ export function createShapeTool(options: ShapeToolOptions) {
   window.addEventListener('pagehide', flushStyle);
   document.addEventListener('keyup', (event) => {
     if (drag && event.key === 'Shift') {
-      drag.object.end = { ...drag.latest };
+      drag.object = alignToGrid({ ...drag.object, start: drag.start, end: { ...drag.latest } });
       paint();
     }
   });
@@ -257,6 +299,7 @@ export function createShapeTool(options: ShapeToolOptions) {
       }
       picker.hidden = false;
       button.setAttribute('aria-expanded', 'true');
+      labels();
       paint();
       positionPicker();
       choices.find((choice) => choice.dataset.shape === kind)?.focus({ preventScroll: true });
@@ -297,7 +340,11 @@ export function createShapeTool(options: ShapeToolOptions) {
         return true;
       }
       if (drag && event.key === 'Shift') {
-        drag.object.end = constrainedEnd(drag.object.kind, drag.start, drag.latest, true);
+        drag.object = alignToGrid({
+          ...drag.object,
+          start: drag.start,
+          end: constrainedEnd(drag.object.kind, drag.start, drag.latest, true),
+        });
         paint();
         return true;
       }

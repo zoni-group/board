@@ -22,13 +22,17 @@ import type { InkObject } from './ink.ts';
 import type { BoardScene } from './scene-renderer.ts';
 import { cachedTextLayout, containsPoint } from './text-layout.ts';
 import {
+  alignToGrid,
   constrainedEnd,
   hitShape,
   hitShapeHandle,
   isBox,
+  isFillable,
   shapeBounds,
   shapeHandles,
 } from './shapes.ts';
+import { fillName, renderFillChip } from './fill-palette.ts';
+import type { FillPalette } from './fill-palette.ts';
 import {
   boundsIntersect,
   screenToWorld,
@@ -63,6 +67,7 @@ interface SelectionOptions {
   changed(ref: BoardObjectRef | null, style: { size: number; inkRaw: string } | null): void;
   beginGrip(event: PointerEvent, ref: BoardObjectRef): void;
   status(message: string): void;
+  fillPalette: FillPalette;
 }
 type Drag = { id: number; start: Point; latest: Point; original: SelectedObject; handle: number };
 type GroupDrag = { id: number; start: Point; latest: Point; originals: SelectedObject[] };
@@ -110,11 +115,18 @@ export function createSelection(options: SelectionOptions) {
   actions.setAttribute('role', 'toolbar');
   const move = document.createElement('button'),
     edit = document.createElement('button'),
+    fill = document.createElement('button'),
     remove = document.createElement('button'),
     done = document.createElement('button');
-  for (const button of [move, edit, remove, done]) button.type = 'button';
+  for (const button of [move, edit, fill, remove, done]) button.type = 'button';
   move.className = 'selection-move';
-  actions.append(move, edit, remove, done);
+  // Fill for a selected closed shape: the chip previews it and opens the fill palette.
+  fill.className = 'selection-fill';
+  fill.hidden = true;
+  fill.setAttribute('aria-haspopup', 'dialog');
+  fill.setAttribute('aria-expanded', 'false');
+  fill.innerHTML = '<span aria-hidden="true"></span><span></span>';
+  actions.append(move, edit, fill, remove, done);
   document.body.append(actions);
   function lookup(target: BoardObjectRef | null = ref): SelectedObject | null {
     if (!target) return null;
@@ -342,12 +354,18 @@ export function createSelection(options: SelectionOptions) {
       height: `${area.height * view.zoom}px`,
     });
     handles.forEach((handle) => (handle.hidden = true));
-    move.hidden = edit.hidden = true;
+    move.hidden = edit.hidden = fill.hidden = true;
     done.hidden = false;
     actions.hidden ||= Boolean(groupDrag);
     placeActions(anchor, area, view, rect);
   }
   function paint() {
+    paintSelection();
+    // The fill palette belongs to the shape it was opened for.
+    if (fill.getAttribute('aria-expanded') === 'true' && (fill.hidden || actions.hidden))
+      options.fillPalette.close();
+  }
+  function paintSelection() {
     syncGroup();
     paintMarquee();
     if (group) {
@@ -409,6 +427,19 @@ export function createSelection(options: SelectionOptions) {
     edit.hidden = object.kind === 'stroke' || object.kind === 'shape' || object.kind === 'image';
     edit.textContent = t(object.kind === 'video' ? 'playVideo' : 'editText');
     done.hidden = object.kind === 'text' && options.tool() === 'text';
+    fill.hidden = !(object.kind === 'shape' && isFillable(object.value.kind));
+    if (object.kind === 'shape' && !fill.hidden) {
+      renderFillChip(
+        fill.firstElementChild as HTMLElement,
+        object.value.fill ?? null,
+        object.value.inkRaw
+      );
+      fill.setAttribute(
+        'aria-label',
+        t('fillWith', { color: fillName(object.value.fill ?? null) })
+      );
+      fill.title = fill.getAttribute('aria-label')!;
+    }
     actions.hidden ||= Boolean(drag);
     placeActions(anchor, area, view, rect);
   }
@@ -416,6 +447,7 @@ export function createSelection(options: SelectionOptions) {
     move.textContent = t('moveText');
     edit.textContent = t('editText');
     remove.textContent = t('deleteText');
+    fill.lastElementChild!.textContent = t('fill');
     done.textContent = t('doneText');
   }
   labels();
@@ -589,11 +621,15 @@ export function createSelection(options: SelectionOptions) {
           shift
         );
       }
-      draft = { kind: 'shape', value };
+      draft = { kind: 'shape', value: alignToGrid(value) };
     } else if (drag.handle >= 0 && (original.kind === 'image' || original.kind === 'video')) {
       const value = resizeMedia(original.value, drag.handle, p);
       draft = { kind: value.kind, value } as SelectedObject;
-    } else draft = translate(original, { x: p.x - drag.start.x, y: p.y - drag.start.y });
+    } else {
+      draft = translate(original, { x: p.x - drag.start.x, y: p.y - drag.start.y });
+      // Number lines and axes on grid paper move in whole grid steps.
+      if (draft.kind === 'shape') draft = { kind: 'shape', value: alignToGrid(draft.value) };
+    }
     options.redraw();
   }
   function end(event: PointerEvent) {
@@ -676,6 +712,21 @@ export function createSelection(options: SelectionOptions) {
   }
   edit.addEventListener('click', editSelected);
   remove.addEventListener('click', removeSelected);
+  fill.addEventListener('click', () => {
+    flushStyle();
+    const original = lookup();
+    if (original?.kind !== 'shape') return;
+    const id = original.value.id;
+    options.fillPalette.toggle(fill, original.value.fill ?? null, original.value.inkRaw, (next) => {
+      const current = lookup({ kind: 'shape', id });
+      if (current?.kind !== 'shape') return;
+      const value = cloneShapeObject(current.value);
+      delete value.fill;
+      if (next) value.fill = { ...next };
+      commit(command(current, { kind: 'shape', value }));
+      options.redraw();
+    });
+  });
   done.addEventListener('click', () => {
     clear();
     canvas.focus({ preventScroll: true });
@@ -898,12 +949,30 @@ export function createSelection(options: SelectionOptions) {
       event.preventDefault();
       flushStyle();
       const original = lookup()!;
+      // On grid paper, a number line or axes moves one grid step (axes resize by two, to keep
+      // the origin on the grid).
+      const gridStep = original.kind === 'shape' ? original.value.step : undefined;
+      if (gridStep) {
+        const scale =
+          (event.altKey && original.kind === 'shape' && original.value.kind === 'axes' ? 2 : 1) *
+          gridStep;
+        offset.x = Math.sign(offset.x) * scale;
+        offset.y = Math.sign(offset.y) * scale;
+      }
       if (event.altKey && original.kind === 'shape') {
         const value = cloneShapeObject(original.value);
         value.end.x += offset.x;
         value.end.y += offset.y;
-        commit(command(original, { kind: 'shape', value }));
-      } else commit(command(original, translate(original, offset)));
+        commit(command(original, { kind: 'shape', value: alignToGrid(value) }));
+      } else {
+        const next = translate(original, offset);
+        commit(
+          command(
+            original,
+            next.kind === 'shape' ? { kind: 'shape', value: alignToGrid(next.value) } : next
+          )
+        );
+      }
       options.redraw();
       return true;
     },

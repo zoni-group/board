@@ -78,7 +78,16 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator('#shapes')).toBeEnabled();
 });
 
-for (const kind of ['rectangle', 'ellipse', 'line', 'arrow']) {
+for (const kind of [
+  'rectangle',
+  'ellipse',
+  'line',
+  'arrow',
+  'triangle',
+  'speechBubble',
+  'numberLine',
+  'axes',
+]) {
   test(`draws a ${kind} with a live preview and stores one editable command`, async ({ page }) => {
     await choose(page, kind);
     await pointer(page, 'pointerdown', 1, 60, 100);
@@ -441,4 +450,122 @@ test('includes offscreen shapes in Fit and PNG independently of the current view
       )
     )
     .toBe(350);
+});
+
+test('fills closed shapes from the picker and from a selected shape', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  const palette = page.locator('#fillPalette');
+  const actions = page.locator('.shape-selection-actions');
+  // Choose Blue in the picker's Fill row: the next shapes are filled.
+  await page.locator('#shapes').click();
+  await page.locator('#shapePicker .shape-fill-row').click();
+  await expect(palette).toBeVisible();
+  await palette.locator('.swatch[data-hex="#2563eb"]').click();
+  await expect(palette).toBeHidden();
+  await expect(page.locator('#shapePicker .shape-fill-row')).toHaveAccessibleName(
+    'Fill: Blue, light'
+  );
+  await page.locator('#shapePicker [data-shape="rectangle"]').click();
+  await drag(page, { x: 60, y: 100 }, { x: 260, y: 220 });
+  await expect.poll(async () => (await shapes(page)).length).toBe(1);
+  expect((await shapes(page))[0].fill).toEqual({ color: '#2563eb' });
+  const light = await pixel(page, 160, 160);
+  expect(light[2]).toBeGreaterThan(light[0] + 40);
+  expect(light[3]).toBeLessThan(140);
+
+  // The new shape is selected; its Fill chip makes the fill solid, then removes it.
+  const fill = actions.getByRole('button', { name: /^Fill:/ });
+  await expect(fill).toHaveAccessibleName('Fill: Blue, light');
+  await fill.click();
+  await palette.getByRole('button', { name: 'Solid' }).click();
+  await expect(palette).toBeVisible();
+  await expect
+    .poll(async () => (await shapes(page))[0].fill)
+    .toEqual({ color: '#2563eb', solid: true });
+  expect((await pixel(page, 160, 160))[3]).toBe(255);
+  await palette.getByRole('button', { name: 'None' }).click();
+  await expect(palette).toBeHidden();
+  await expect.poll(async () => (await shapes(page))[0].fill).toBeUndefined();
+  expect((await pixel(page, 160, 160))[3]).toBe(0);
+  await page.locator('#undo').click();
+  await expect
+    .poll(async () => (await shapes(page))[0].fill)
+    .toEqual({ color: '#2563eb', solid: true });
+
+  // Outline follows the outline colour; a custom colour comes from the device picker.
+  await fill.click();
+  await palette.getByRole('button', { name: 'Outline' }).click();
+  await expect
+    .poll(async () => (await shapes(page))[0].fill)
+    .toEqual({ color: 'outline', solid: true });
+  await fill.click();
+  await palette.locator('input[type="color"]').fill('#ff0000');
+  await expect
+    .poll(async () => (await shapes(page))[0].fill)
+    .toEqual({ color: '#ff0000', solid: true });
+  await page.reload();
+  await expect(page.locator('#shapes')).toBeEnabled();
+  expect((await shapes(page))[0].fill).toEqual({ color: '#ff0000', solid: true });
+
+  // Open shapes have no fill.
+  await choose(page, 'line');
+  await drag(page, { x: 60, y: 300 }, { x: 260, y: 300 });
+  await expect.poll(async () => (await shapes(page)).length).toBe(2);
+  await expect(actions).toBeVisible();
+  await expect(actions.getByRole('button', { name: /^Fill:/ })).toBeHidden();
+  expect((await shapes(page))[1].fill).toBeUndefined();
+});
+
+async function paper(page, pattern) {
+  await page.evaluate(async (pattern) => {
+    window.dispatchEvent(new Event('pagehide'));
+    const { activeBoard } = await import('/test/helpers/board-browser.js');
+    const { updateBoardBackground } = await import('/src/board/storage.ts');
+    await updateBoardBackground((await activeBoard()).id, {
+      pattern,
+      spacing: 'medium',
+      color: 'auto',
+    });
+  }, pattern);
+  await page.reload();
+  await expect(page.locator('#shapes')).toBeEnabled();
+}
+
+test('number lines and axes snap to a grid background and keep its spacing', async ({ page }) => {
+  await paper(page, 'grid');
+  const onGrid = (point) => point.x % 32 === 0 && point.y % 32 === 0;
+
+  await choose(page, 'numberLine');
+  await drag(page, { x: 45, y: 110 }, { x: 290, y: 118 });
+  await expect.poll(async () => (await shapes(page)).length).toBe(1);
+  const line = (await shapes(page))[0];
+  expect(line).toMatchObject({ kind: 'numberLine', step: 32 });
+  expect(onGrid(line.start) && onGrid(line.end)).toBe(true);
+
+  // The selected line moves in whole grid steps.
+  const middle = { x: (line.start.x + line.end.x) / 2, y: line.start.y };
+  await drag(page, middle, { x: middle.x + 45, y: middle.y + 20 });
+  await expect.poll(async () => (await shapes(page))[0].start).not.toEqual(line.start);
+  const moved = (await shapes(page))[0];
+  expect(onGrid(moved.start) && onGrid(moved.end)).toBe(true);
+  expect(moved.end.x - moved.start.x).toBe(line.end.x - line.start.x);
+
+  await choose(page, 'axes');
+  await drag(page, { x: 50, y: 200 }, { x: 250, y: 330 });
+  await expect.poll(async () => (await shapes(page)).length).toBe(2);
+  const axes = (await shapes(page))[1];
+  expect(axes).toMatchObject({ kind: 'axes', step: 32 });
+  expect(onGrid(axes.start)).toBe(true);
+  expect((axes.end.x - axes.start.x) % 64).toBe(0);
+  expect((axes.end.y - axes.start.y) % 64).toBe(0);
+
+  // On blank paper nothing snaps.
+  await seed(page, []);
+  await paper(page, 'blank');
+  await choose(page, 'numberLine');
+  await drag(page, { x: 45, y: 110 }, { x: 290, y: 110 });
+  await expect.poll(async () => (await shapes(page)).length).toBe(1);
+  const free = (await shapes(page))[0];
+  expect(free.step).toBeUndefined();
+  expect(free.start).toEqual({ x: 45, y: 110 });
 });

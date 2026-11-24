@@ -15,7 +15,38 @@ export type BoardObjectRef = {
   id: string;
 };
 
-export type ShapeKind = 'rectangle' | 'ellipse' | 'line' | 'arrow';
+export type ShapeKind =
+  | 'rectangle'
+  | 'ellipse'
+  | 'line'
+  | 'arrow'
+  | 'triangle'
+  | 'speechBubble'
+  | 'numberLine'
+  | 'axes';
+/** Shapes drawn from a box (opposite corners); the others run from start to end. */
+export const BOX_SHAPES: readonly ShapeKind[] = [
+  'rectangle',
+  'ellipse',
+  'triangle',
+  'speechBubble',
+  'axes',
+];
+/** Closed shapes that can be filled. */
+export const FILLABLE_SHAPES: readonly ShapeKind[] = [
+  'rectangle',
+  'ellipse',
+  'triangle',
+  'speechBubble',
+];
+const SHAPE_KINDS: readonly ShapeKind[] = [...BOX_SHAPES, 'line', 'arrow', 'numberLine'];
+
+/** A closed shape's fill: a colour, or `outline` to follow the outline colour. */
+export interface ShapeFill {
+  color: string;
+  /** Full strength; otherwise a light, see-through tint. */
+  solid?: true;
+}
 
 /** Boxes use opposite corners; lines retain endpoint order (and arrow direction). */
 export interface ShapeObject {
@@ -25,6 +56,10 @@ export interface ShapeObject {
   end: Point;
   size: number;
   inkRaw: string;
+  /** Absent means no fill. Only on closed shapes. */
+  fill?: ShapeFill;
+  /** Number lines and axes drawn on grid or dot paper: the grid spacing their ticks follow. */
+  step?: number;
 }
 
 export interface ShapeSetCommand {
@@ -203,8 +238,7 @@ function normalizeIds(value: unknown): string[] {
 export function normalizeShapeObject(value: unknown): ShapeObject | null {
   if (!isRecord(value) || typeof value.id !== 'string' || !value.id) return null;
   const { kind, size, inkRaw } = value;
-  if (kind !== 'rectangle' && kind !== 'ellipse' && kind !== 'line' && kind !== 'arrow')
-    return null;
+  if (!SHAPE_KINDS.includes(kind as ShapeKind)) return null;
   const start = normalizePoint(value.start),
     end = normalizePoint(value.end);
   if (!start || !end || !isFiniteNumber(size) || size <= 0 || size > 1000) return null;
@@ -212,22 +246,54 @@ export function normalizeShapeObject(value: unknown): ShapeObject | null {
   const width = Math.abs(end.x - start.x),
     height = Math.abs(end.y - start.y);
   if (!Number.isFinite(Math.hypot(width, height))) return null;
-  if (kind === 'rectangle' || kind === 'ellipse') {
+  const shapeKind = kind as ShapeKind;
+  if (BOX_SHAPES.includes(shapeKind)) {
     if (width === 0 || height === 0) return null;
+    const fill = FILLABLE_SHAPES.includes(shapeKind) ? normalizeShapeFill(value.fill) : null;
     return {
       id: value.id,
-      kind,
+      kind: shapeKind,
       size,
       inkRaw,
       start: { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y) },
       end: { x: Math.max(start.x, end.x), y: Math.max(start.y, end.y) },
+      ...(fill ? { fill } : {}),
+      ...(shapeKind === 'axes' && normalizeStep(value.step)
+        ? { step: normalizeStep(value.step)! }
+        : {}),
     };
   }
-  return width || height ? { id: value.id, kind, start, end, size, inkRaw } : null;
+  if (!width && !height) return null;
+  const step = normalizeStep(value.step);
+  return {
+    id: value.id,
+    kind: shapeKind,
+    start,
+    end,
+    size,
+    inkRaw,
+    ...(step && shapeKind === 'numberLine' ? { step } : {}),
+  };
+}
+
+function normalizeStep(value: unknown): number | null {
+  return isFiniteNumber(value) && value >= 4 && value <= 1000 ? value : null;
+}
+
+export function normalizeShapeFill(value: unknown): ShapeFill | null {
+  if (!isRecord(value) || typeof value.color !== 'string') return null;
+  const color = value.color === 'outline' ? 'outline' : value.color.toLowerCase();
+  if (color !== 'outline' && !/^#[\da-f]{6}$/.test(color)) return null;
+  return value.solid === true ? { color, solid: true } : { color };
 }
 
 export function cloneShapeObject(object: ShapeObject): ShapeObject {
-  return { ...object, start: clonePoint(object.start), end: clonePoint(object.end) };
+  return {
+    ...object,
+    start: clonePoint(object.start),
+    end: clonePoint(object.end),
+    ...(object.fill ? { fill: { ...object.fill } } : {}),
+  };
 }
 
 export function normalizeTextObject(value: unknown): TextObject | null {

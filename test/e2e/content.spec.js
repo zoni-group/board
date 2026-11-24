@@ -99,7 +99,8 @@ test('uses one existing toolbar slot for all four object choices and keeps Shape
   await page.locator('#objectPicker button').first().press('Escape');
   await expect(page.locator('#objectPicker')).toBeHidden();
   await page.locator('#shapes').click();
-  await expect(page.locator('#shapePicker button')).toHaveCount(4);
+  await expect(page.locator('#shapePicker [data-shape]')).toHaveCount(8);
+  await expect(page.locator('#shapePicker .shape-fill-row')).toBeVisible();
   await page.locator('#text').click();
   await expect(page.locator('#shapePicker')).toBeHidden();
   await page.setViewportSize({ width: 1024, height: 720 });

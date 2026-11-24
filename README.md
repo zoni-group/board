@@ -256,12 +256,36 @@ external fonts, or collaboration service is required.
 
 ## Shapes Tool
 
-Select **Shapes**, then choose **Rectangle**, **Ellipse**, **Line**, or **Arrow**. Drag to draw
-with a live preview. Hold Shift for a square/circle or line angles in 45-degree
-increments. The current color and width controls apply to new shapes. Interiors stay transparent.
+Select **Shapes**, then choose **Rectangle**, **Ellipse**, **Line**, **Arrow**, **Triangle**,
+**Speech bubble**, **Number line**, or **Axes**. Drag to draw with a live preview. Hold Shift for
+equal sides (square, circle, even triangle or axes) or line angles in 45-degree increments. The
+current color and width controls apply to new shapes. The speech bubble's tail points to the
+bottom-left; number lines have arrowheads at both ends and even ticks; axes cross at the box's
+center. Ticks carry no numbers, so teachers write their own.
+
+On grid or dot paper (Settings → Paper), number lines and axes snap to the paper: their ends and
+origin sit on grid points and every tick falls on a grid line or dot. A nearly level or upright
+number line is drawn exactly level or upright. Moving or resizing them, by drag or arrow keys,
+goes in whole grid steps, so they stay aligned. Each one keeps the spacing it was drawn with if
+the paper changes later; redraw it to match a new spacing. On blank or lined paper they draw
+freely with evenly spaced ticks.
+
+### Fill
+
+Closed shapes (rectangle, ellipse, triangle, speech bubble) can be filled. The **Fill** row at
+the bottom of the Shapes picker sets the fill for the next shapes (remembered on this device;
+**None** by default). A selected closed shape shows a **Fill** chip next to **Delete** to change
+just that shape; each change is one undoable step. The chip opens a small palette:
+
+- **None** removes the fill; **Outline** uses the outline color and follows it when it changes.
+- The six preset colors, or **Custom…** for the device's own color picker.
+- **Light** (see-through, so outlines and writing on top stay readable) or **Solid**.
+
+Line, arrow, number line, and axes have no fill. Older app versions show fills as outlines and
+skip the four newer shape kinds until they update.
 
 While Shapes is active, tap a shape to select it, drag its body to move it, and drag a corner
-handle to resize a rectangle/ellipse. Lines and arrows have two endpoint handles; their direction
+handle to resize a box shape (rectangle, ellipse, triangle, speech bubble, axes). Lines, arrows, and number lines have two endpoint handles; their direction
 is preserved. Hold Shift while resizing for the same constraints. Change color or width to restyle
 the selection. **Delete** removes it; **Done**, Escape, or changing tools dismisses the selection.
 Choosing a shape kind also dismisses selection, so the next drag can draw inside or across
@@ -275,7 +299,7 @@ unfinished shape or transform. Two-finger pan/zoom and stylus palm rejection use
 as freehand drawing. Handles and controls keep their screen size while shapes zoom with the board.
 
 The eraser removes a whole shape when it touches the outline; crossing an empty interior alone
-does not remove it. A single eraser gesture can remove several shapes and text blocks along with
+does not remove it, but touching a filled interior does. A single eraser gesture can remove several shapes and text blocks along with
 ink, and undo restores them together. Shapes remain editable after local autosave and reload.
 They render above freehand ink and below text, in shape creation order; editing retains that order.
 Fit and whole-board PNG export include shapes and arrowheads, including offscreen content.
