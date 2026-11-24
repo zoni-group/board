@@ -88,6 +88,7 @@ test('Box selects several strokes, moves them together, and one Undo restores bo
   await expect(page.locator('#groupSelection')).toBeVisible();
   await expect(page.locator('#status')).toContainText('2 objects selected');
   await expect(page.locator('.group-selection-actions button:visible')).toHaveText([
+    'Duplicate',
     'Delete',
     'Done',
   ]);

@@ -45,6 +45,8 @@ interface ContentToolOptions {
   status(message: string): void;
   /** A PDF dropped on the board becomes pages, not an image. */
   insertPdf(file: File): void;
+  /** Ctrl/⌘+V: pastes copied board objects; false leaves the paste to the image handler. */
+  pasteObjects(data: DataTransfer | null): boolean;
 }
 export function createContentTool(options: ContentToolOptions) {
   const { canvas, button } = options;
@@ -507,6 +509,10 @@ export function createContentTool(options: ContentToolOptions) {
   });
   document.addEventListener('paste', (event) => {
     if (editable(event) || host || !options.ready()) return;
+    if (options.pasteObjects(event.clipboardData)) {
+      event.preventDefault();
+      return;
+    }
     const file = Array.from(event.clipboardData?.files ?? []).find((file) =>
       IMAGE_TYPES.includes(file.type)
     );

@@ -36,7 +36,13 @@ export function resolveInk(commands: readonly BoardCommand[]): InkObject[] {
             id: command.id,
             stroke: command,
             offset: { x: 0, y: 0 },
-            erasures: [],
+            erasures: (command.erasures ?? []).map((mask) => ({
+              type: 'stroke',
+              tool: 'eraser',
+              size: mask.size,
+              inkRaw: '#000000',
+              points: mask.points,
+            })),
           });
         } else {
           const erasedBounds = strokeBounds(command);

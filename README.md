@@ -145,6 +145,10 @@ visible layer order. Images, tables, and video cards sit beneath ink in their cr
 Each pen-down/up gesture is one object; freehand drawings with several
 strokes are edited one stroke at a time.
 
+Every selected object shows a **Move** grip in its action bar: pen strokes, shapes, text, images,
+video cards and tables. Drag it to move the object; it helps with thin ink, lines and small shapes
+that are hard to grab, and with text, tables and videos, where a tap or double-click edits.
+
 Use **Delete** or Delete/Backspace to remove the selected object. **Done** or Escape deselects;
 Escape during movement or resizing cancels that unfinished change. Arrow keys move by one board
 unit; Shift moves by ten. Existing shape handles and Shift/Alt+arrow resizing work in Select too.
@@ -167,6 +171,29 @@ movement begun with Text's Move handle. Stylus palm rejection, fixed-size contro
 undo/redo, Fit and whole-board PNG export apply to all object edits. Selection outlines and handles
 are temporary and never saved or exported.
 
+### Duplicate, copy and paste
+
+**Duplicate** in the selection bar (or Ctrl/⌘+D) places a copy of the selected object or group
+24 board units below and to the right, and selects it, so it can be dragged straight away; repeat
+to cascade more copies. There are no other new buttons. With the keyboard:
+
+- **Ctrl/⌘+C** copies the selection and **Ctrl/⌘+X** cuts it (the delete is one undoable step).
+- **Ctrl/⌘+V** pastes and selects the copies. On the page it came from, while that spot is in
+  view, each paste lands one step further along (the first paste after a cut lands in place).
+  On another page or board, the copies are centred in the view.
+- Each duplicate, cut or paste is one undo step. The shortcuts do nothing while a text editor or
+  other field has focus (it keeps its own copy and paste), or while the board is locked.
+
+Copies keep everything: fill, pen pressure, rich text, table cells and partly erased ink (the
+copied stroke carries its erased parts in an optional `erasures` field, which older app versions
+ignore and draw the whole stroke). Number lines and axes on grid paper copy in whole grid steps,
+so they stay on the grid.
+
+Copied objects stay in this browser tab, so they paste on any page or board but not into another
+tab or app. Images and device videos are stored per board, so pasting one into another board
+first stores its own copy of the media there. Copying on the board replaces what the system
+clipboard held, so an image copied in another app afterwards pastes as an image, as before.
+
 ### Select modes: Select one, Box, Lasso
 
 Tapping the active **Select** button opens its modes, the same way the Pen button opens pen types.
@@ -180,7 +207,7 @@ remembered on this device.
   handwritten word. Shapes, text, and media are caught when their center and at least three
   corners are inside.
 - Catching one object makes a normal single selection with its handles and actions. Catching
-  two or more makes a **group** with one outline and **Delete**/**Done** actions. An empty or
+  two or more makes a **group** with one outline and **Duplicate**/**Delete**/**Done** actions. An empty or
   tiny region clears the selection. Tapping an object still selects only that object in every
   mode.
 - Drag inside a group's outline, or use the arrow keys (Shift: ten units), to move every member.
@@ -194,7 +221,7 @@ remembered on this device.
 - A second finger, pan, or zoom cancels an unfinished region or group move. Switching tools
   clears the group.
 
-Resizing or rotating a group, Shift-tap to add objects, copy/duplicate, pen/text geometry
+Resizing or rotating a group, Shift-tap to add objects, pen/text geometry
 resizing, rotation, and new fill/opacity attributes are outside this version's scope. No remote
 storage is added.
 
