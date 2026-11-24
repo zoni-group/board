@@ -17,6 +17,8 @@ import { createPageNav } from './page-nav.ts';
 import { createBoardMenu, boardFileName } from './board-menu.ts';
 import type { Transfer } from './board-menu.ts';
 import { writePdf } from './pdf-writer.ts';
+import { createBoardLock } from './board-lock.ts';
+import { createFullScreenButton } from './full-screen.ts';
 import type { PdfPageImage } from './pdf-writer.ts';
 import { cloneCommand, clonePoint, expandCommands } from './model.ts';
 import { createTextTool } from './text-tool.ts';
@@ -100,6 +102,7 @@ import {
   IconAddPage,
   IconInsertPdf,
   IconPdf,
+  IconLock,
 } from '../icons.ts';
 
 interface ToolOptions {
@@ -163,6 +166,8 @@ for (const [id, icon] of [
   ['save', IconImage],
   ['savePdf', IconPdf],
   ['boardSettings', IconSettings],
+  ['lockBoard', IconLock],
+  ['unlockBoard', IconLock],
   ['clear', IconTrash],
 ] as const)
   applyButtonIcon(document.getElementById(id), icon);
@@ -196,6 +201,21 @@ for (const [id, icon] of [
   const zoomOutBtn = requireElement('zoomOut', 'button');
   const zoomResetBtn = requireElement('zoomReset', 'button');
   const fitBtn = requireElement('fitDrawing', 'button');
+  const lockBtn = requireElement('lockBoard', 'button');
+  createFullScreenButton(requireElement('fullScreen', 'button'));
+  const lock = createBoardLock({
+    root: document.documentElement,
+    pill: requireElement('unlockBoard', 'button'),
+    changed(locked) {
+      pageNav.sync();
+      if (locked) return;
+      selectTool('pen');
+      setStatus(t('boardUnlocked'));
+    },
+    hint: () => setStatus(t('holdToUnlock')),
+  });
+  /** False while the board is locked: only moving around and changing pages work. */
+  const editable = () => !lock.isLocked();
   const app = document.querySelector<HTMLElement>('.app');
   if (!app) throw new Error('Missing board app');
 
@@ -504,7 +524,7 @@ for (const [id, icon] of [
     canvas,
     button: textBtn,
     selection,
-    ready: () => boardReady && !boardMenu?.isBusy(),
+    ready: () => boardReady && !boardMenu?.isBusy() && editable(),
     boardId: () => boardSession!.record.id,
     objects: () => getScene().content,
     view: () => viewport ?? initialViewport(boardSize()),
@@ -961,7 +981,7 @@ for (const [id, icon] of [
     renderSwatches();
     applyInk();
     assets.clear();
-    tool = 'pen';
+    tool = editable() ? 'pen' : 'hand';
     if (!board.viewport) await queueBoardPersistence();
     boardReady = true;
     textBtn.disabled = shapesBtn.disabled = selectBtn.disabled = boardsBtn.disabled = false;
@@ -1027,9 +1047,11 @@ for (const [id, icon] of [
     duplicate: duplicatePage,
     move: movePage,
     remove: deletePage,
+    editable,
   });
 
   function pushHistoryCommand(command: BoardCommand, { clearRedo = true } = {}) {
+    if (!editable()) return;
     const nextCommand = cloneCommand(command);
     commandHistory.push(nextCommand);
     if (clearRedo) dropRedo();
@@ -1342,7 +1364,7 @@ for (const [id, icon] of [
   }
 
   function start(ev: PointerEvent) {
-    if (!boardReady) return;
+    if (!boardReady || !editable()) return;
     if (tool === 'select') {
       if (textTool.finish()) selection.start(ev);
       return;
@@ -1496,7 +1518,7 @@ for (const [id, icon] of [
   }
 
   function clear() {
-    if (!contentTool.finish() || !textTool.finish()) return;
+    if (!editable() || !contentTool.finish() || !textTool.finish()) return;
     contentTool.closePicker();
     shapeTool.flushStyle();
     navigation.cancel();
@@ -1518,6 +1540,7 @@ for (const [id, icon] of [
   }
 
   function undo() {
+    if (!editable()) return;
     shapeTool.flushStyle();
     if (contentTool.isEditing()) {
       contentTool.undo();
@@ -1540,6 +1563,7 @@ for (const [id, icon] of [
   }
 
   function redo() {
+    if (!editable()) return;
     shapeTool.flushStyle();
     if (contentTool.isEditing()) {
       contentTool.redo();
@@ -1778,6 +1802,7 @@ for (const [id, icon] of [
   document.addEventListener('selectstart', preventSelectionWhileDrawing);
 
   function selectTool(next: BoardTool): boolean {
+    if (next !== 'hand' && !editable()) return false;
     if (boardMenu?.isWorking() || !contentTool.finish() || !textTool.activate(next === 'text'))
       return false;
     boardMenu?.dismiss();
@@ -1899,6 +1924,17 @@ for (const [id, icon] of [
   colorPopup?.addEventListener('keyup', () => shapeTool.flushStyle());
 
   clearBtn.addEventListener('click', clear);
+  /**
+   * Board menu → Lock board: only moving around, zoom, page arrows and full screen keep working
+   * until the Locked pill is held.
+   */
+  function lockBoard() {
+    if (!boardReady || !editable() || !selectTool('hand')) return;
+    lock.lock();
+    pageNav.close(false);
+    setStatus(t('boardLocked'));
+  }
+  lockBtn.addEventListener('click', lockBoard);
   saveBtn.addEventListener('click', () => {
     void downloadDrawingAsPng();
   });
@@ -1948,7 +1984,7 @@ for (const [id, icon] of [
     if (selectPicker.handleKey(event)) return;
     if (contentTool.handleKey(event)) return;
     if (shapeTool.handleKey(event)) return;
-    if (selection.handleKey(event)) return;
+    if (editable() && selection.handleKey(event)) return;
     if (navigation.handleKey(event)) return;
     if (textTool.handleKey(event)) return;
     if (isEditableElement(document.activeElement)) return;

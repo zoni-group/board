@@ -357,7 +357,7 @@ test('keeps the picker, actions and navigation accessible at 320×160 without pa
   await page.locator('#pad').click({ position: { x: 8, y: 10.3 } });
   expect(
     await page
-      .locator('.board-action-strip button, .board-navigation button')
+      .locator('.board-action-strip button:visible, .board-navigation button:visible')
       .evaluateAll((buttons) =>
         buttons.every((button) => {
           const rect = button.getBoundingClientRect();

@@ -75,6 +75,10 @@ describe('index.html smoke', () => {
     expect(document.getElementById('addPage').textContent.trim()).toBe('Add page');
     expect(document.getElementById('addPage').querySelector('.btn-icon svg')).not.toBeNull();
     expect(document.getElementById('pageNav').hidden).toBe(true);
+    expect(document.getElementById('lockBoard').textContent.trim()).toBe('Lock board');
+    expect(document.querySelector('#lockBoard .btn-icon svg')).not.toBeNull();
+    expect(document.getElementById('unlockBoard').hidden).toBe(true);
+    expect(document.getElementById('unlockBoard').textContent.trim()).toBe('Locked');
     expect(document.getElementById('undo').disabled).toBe(true);
     expect(document.getElementById('redo').disabled).toBe(true);
     expect(document.getElementById('sizePreview')).toBeTruthy();

@@ -1179,6 +1179,9 @@ html.has-iro .color-popup-card{
   display: grid;
   place-items: center;
 }
+.board-navigation button[hidden] {
+  display: none;
+}
 .board-navigation #zoomReset {
   width: 64px;
   font-size: 13px;
@@ -1500,3 +1503,63 @@ button.destructive { color:var(--danger-fg); }
 .settings-free-actions { display:flex; flex-wrap:wrap; gap:8px; }
 .settings-free-actions button:not(.settings-action) { min-height:36px; padding:6px 12px; font-size:13px; }
 #boardName { display:inline-block; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
+
+/* Lock board: the editing toolbar gives way to one Locked pill, held to unlock. */
+html.board-locked .board-action-strip,
+html.board-locked .size-label,
+html.board-locked .board-navigation #select {
+  display: none;
+}
+.unlock-pill {
+  --hold: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 16px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 23px;
+  background: var(--surface);
+  color: var(--btn-fg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: none;
+}
+.unlock-pill[hidden] {
+  display: none;
+}
+.unlock-pill:hover {
+  background: var(--btn-hover-bg);
+}
+.unlock-pill .btn-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  /* The ring fills while the pill is held. */
+  background: conic-gradient(var(--btn-fg) calc(var(--hold) * 1turn), var(--btn-bg) 0);
+}
+.unlock-pill .btn-icon::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--surface);
+}
+.unlock-pill svg {
+  position: relative;
+  width: 16px;
+  height: 16px;
+}
+/* Below 360 px the zoom bar has no room for Full screen; such small screens are phones anyway. */
+@media (max-width: 360px) {
+  .board-navigation #fullScreen {
+    display: none;
+  }
+}

@@ -388,6 +388,18 @@ can't be selected or edited. Password-protected PDFs aren't supported. The PDF r
 ([pdf.js](https://mozilla.github.io/pdf.js/)) loads only when first used and is cached for offline
 use.
 
+## Presenting
+
+- **Full screen**: the last button in the zoom bar hides the browser bars on a projector or
+  interactive whiteboard; press it again or Esc to leave. It is hidden where the browser can't go
+  full screen, such as Safari on iPhone (adding the board to the Home Screen fills the screen
+  instead).
+- **Boards → Lock board** protects the board on a shared screen. The editing toolbar, the Board menu
+  and the Page menu are replaced by a **Locked** pill. Moving, zooming, Fit, the page arrows,
+  PageUp/PageDown and Full screen keep working; drawing, objects, Undo/Redo, Clear, paste and drop
+  don't. **Press and hold Locked for a second** to unlock; a tap only shows a hint. The lock is
+  kept on this device, so reloading the page doesn't unlock it.
+
 ## Settings
 
 **Boards → Settings…** opens one panel; it adds no toolbar buttons. Every change applies at once.
