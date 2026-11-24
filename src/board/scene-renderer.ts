@@ -1,6 +1,6 @@
 import { resolveInk, inkBounds, renderInk } from './ink.ts';
 import type { InkObject } from './ink.ts';
-export { drawStroke, applyStrokeStyle, strokeBounds } from './ink.ts';
+export { drawStroke, drawStrokeSegment, applyStrokeStyle, strokeBounds } from './ink.ts';
 import type { BoardCommand, TextObject, ShapeObject, ContentObject } from './model.ts';
 import { resolveContent, contentBounds, drawContent } from './content.ts';
 import type { ContentPaintOptions } from './content.ts';

@@ -5,7 +5,9 @@ import {
   HIGHLIGHT_ALPHA,
   inkBounds,
   inkPaintOrder,
+  pressureWidth,
   resolveInk,
+  strokeBounds,
 } from '../../src/board/ink.ts';
 
 const pen = (id = 'a') => ({
@@ -157,5 +159,31 @@ describe('highlighter ink', () => {
     applyStrokeStyle(ctx, erase(), (raw) => raw);
     expect(ctx.globalAlpha).toBe(1);
     expect(ctx.globalCompositeOperation).toBe('destination-out');
+  });
+});
+
+describe('stylus pressure', () => {
+  const pressed = (pressure, extra = {}) => ({ ...pen(), pressure, ...extra });
+
+  it('keeps pressure that matches the points, and draws half pressure at the chosen size', () => {
+    expect(normalizeCommand(pressed([0.2, 0.9]))).toEqual(pressed([0.2, 0.9]));
+    expect(pressureWidth(6, 0.5)).toBeCloseTo(6);
+    expect(pressureWidth(6, 1)).toBeGreaterThan(pressureWidth(6, 0.1));
+  });
+  it('drops pressure that is unusable, so the stroke draws at an even width', () => {
+    for (const pressure of [[0.5], [0.5, 1.5], [0.5, Number.NaN], 'x'])
+      expect(normalizeCommand(pressed(pressure))).toEqual(pen());
+    expect(normalizeCommand(pressed([0.2, 0.9], { pen: 'highlighter' }))).toEqual({
+      ...pen(),
+      pen: 'highlighter',
+    });
+  });
+  it('copies pressure with the stroke and widens its bounds for a firm press', () => {
+    const stroke = pressed([0.2, 1]);
+    const copy = cloneCommand(stroke);
+    expect(copy.pressure).toEqual([0.2, 1]);
+    expect(copy.pressure).not.toBe(stroke.pressure);
+    expect(strokeBounds(stroke).height).toBeGreaterThan(strokeBounds(pen()).height);
+    expect(strokeBounds(pressed([0.1, 0.1])).height).toBeLessThan(strokeBounds(pen()).height);
   });
 });
