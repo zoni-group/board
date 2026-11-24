@@ -1124,6 +1124,82 @@ html.has-iro .color-popup-card{
 .shape-selection-actions { display:flex; gap:4px; }
 .shape-selection-actions button { min-height:36px; padding:6px 10px; font-size:12px; }
 .shape-picker[hidden], .shape-selection-actions[hidden] { display:none; }
+/* Shape fill: a chip previews the fill and opens a small palette. */
+.fill-chip {
+  --fill-chip-color: transparent;
+  position:relative;
+  display:inline-block;
+  flex:0 0 auto;
+  width:18px;
+  height:18px;
+  border-radius:999px;
+  border:1.5px solid color-mix(in srgb, currentColor 60%, transparent);
+  background:var(--fill-chip-color);
+}
+.fill-chip[data-fill="light"] {
+  background:
+    linear-gradient(color-mix(in srgb, var(--fill-chip-color) 30%, transparent), color-mix(in srgb, var(--fill-chip-color) 30%, transparent)),
+    var(--surface);
+  border-color:var(--fill-chip-color);
+}
+.fill-chip[data-fill="solid"] { border-color:var(--fill-chip-color); }
+.fill-chip[data-fill="none"]::after {
+  content:'';
+  position:absolute;
+  left:50%;
+  top:-1px;
+  bottom:-1px;
+  width:1.5px;
+  background:color-mix(in srgb, currentColor 60%, transparent);
+  transform:rotate(45deg);
+}
+.shape-picker .shape-fill-row { grid-column:1 / -1; justify-content:flex-start; }
+.selection-fill { display:inline-flex; align-items:center; gap:6px; }
+.selection-fill .fill-chip { width:14px; height:14px; }
+.selection-fill[hidden] { display:none; }
+.fill-palette {
+  position:fixed;
+  z-index:31;
+  display:grid;
+  gap:8px;
+  width:244px;
+  padding:8px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:var(--surface);
+  box-shadow:var(--shadow);
+}
+.fill-palette[hidden] { display:none; }
+.fill-palette-row, .fill-palette-strength { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+.fill-palette-row button, .fill-palette-custom {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-height:36px;
+  padding:6px 8px;
+  font-size:13px;
+}
+.fill-palette-swatches { display:flex; justify-content:space-between; padding:2px 4px; }
+.fill-palette-swatches .swatch { width:24px; height:24px; }
+.fill-palette-swatches .swatch[aria-pressed="true"] {
+  box-shadow:0 0 0 2px var(--surface), 0 0 0 4px var(--btn-fg);
+}
+.fill-palette-custom {
+  position:relative;
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  color:var(--btn-fg);
+  cursor:pointer;
+}
+.fill-palette-custom.is-active { box-shadow:0 0 0 2px var(--btn-fg); }
+.fill-palette-custom input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+.fill-chip-custom { background:conic-gradient(#e11d48, #f59e0b, #10b981, #2563eb, #a855f7, #e11d48); border-color:transparent; }
+.fill-palette-custom.is-active .fill-chip-custom { background:var(--fill-chip-color); }
+.fill-palette-strength button { min-height:32px; font-size:12px; }
+@media (pointer:coarse) {
+  .fill-palette-row button, .fill-palette-custom, .fill-palette-strength button { min-height:44px; }
+  .fill-palette-swatches .swatch { width:30px; height:30px; }
+}
 .object-picker button { position:relative; }
 #text::after { content:''; position:absolute; right:5px; bottom:7px; border:3px solid transparent; border-top-color:currentColor; transform:translateY(3px); }
 #text { position:relative; }

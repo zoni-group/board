@@ -23,6 +23,8 @@ import type { PdfPageImage } from './pdf-writer.ts';
 import { cloneCommand, clonePoint, expandCommands } from './model.ts';
 import { createTextTool } from './text-tool.ts';
 import { createShapeTool } from './shape-tool.ts';
+import { COLOR_PRESETS } from './presets.ts';
+import { createFillPalette } from './fill-palette.ts';
 import { createSelection } from './selection.ts';
 import { createContentTool } from './content-tool.ts';
 import { createAssetCache, discardAsset, saveAsset } from './assets.ts';
@@ -73,6 +75,7 @@ import {
   isDarkColor,
   paintBackgroundPattern,
   resolveCanvasColor,
+  SPACING,
 } from './background.ts';
 import type { BoardBackground } from './background.ts';
 import { applyTheme, onThemeChange, storedTheme } from './theme.ts';
@@ -414,7 +417,9 @@ for (const [id, icon] of [
   let pages: BoardPage[] = [];
   let pageIndex = 0;
   const assets = createAssetCache(redrawCanvas);
+  const fillPalette = createFillPalette({ dark: isDarkMode });
   const selection = createSelection({
+    fillPalette,
     canvas,
     textContext,
     scene: getScene,
@@ -476,6 +481,11 @@ for (const [id, icon] of [
       return queueBoardPersistence();
     },
     status: setStatus,
+    fillPalette,
+    gridStep: () =>
+      boardBackground.pattern === 'grid' || boardBackground.pattern === 'dotted'
+        ? SPACING[boardBackground.spacing]
+        : null,
   });
   const laser = createLaser({
     layer: laserLayer,
@@ -1286,14 +1296,7 @@ for (const [id, icon] of [
   }
 
   // Presets tuned for a minimal look (different per theme)
-  const PRESETS = [
-    { id: 'graphite', light: '#111827', dark: '#e5e7eb' },
-    { id: 'slate', light: '#334155', dark: '#cbd5e1' },
-    { id: 'blue', light: '#2563eb', dark: '#60a5fa' },
-    { id: 'green', light: '#10b981', dark: '#34d399' },
-    { id: 'amber', light: '#f59e0b', dark: '#fbbf24' },
-    { id: 'rose', light: '#e11d48', dark: '#fb7185' },
-  ];
+  const PRESETS = COLOR_PRESETS;
 
   function appliedInkFromRaw() {
     return ensureInkContrast(inkRaw);

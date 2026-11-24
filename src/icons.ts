@@ -238,6 +238,13 @@ export const ShapeIcons = {
   line: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20 20 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
   arrow:
     '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20 20 4M9 4h11v11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  triangle:
+    '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.5 20.5 19h-17Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>',
+  speechBubble:
+    '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 4.5h10a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-6.5L5.5 20l1-3.6A3 3 0 0 1 4 13.5v-6a3 3 0 0 1 3-3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>',
+  numberLine:
+    '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2.5 12h19M5 9.5 2.5 12 5 14.5M19 9.5l2.5 2.5-2.5 2.5M8 10v4M12 10v4M16 10v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  axes: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 12h18M12 21V3M18.5 9.5 21 12l-2.5 2.5M5.5 9.5 3 12l2.5 2.5M9.5 5.5 12 3l2.5 2.5M9.5 18.5 12 21l2.5-2.5M7.5 11v2M16 11v2M11 7.5h2M11 16.5h2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 export const IconHand = `
   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
