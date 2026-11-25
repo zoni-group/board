@@ -279,10 +279,9 @@ test('picks text above shapes above ink, and edits text through the existing edi
   expect((await scene(page)).strokes).toHaveLength(1);
 });
 
-test('cancels moves on second touch, capture loss, Escape and blur for every object type', async ({
-  page,
-}) => {
-  for (const kind of ['stroke', 'shape', 'text']) {
+// One test per kind: each reloads the page, which a slow runner cannot fit three times in one timeout.
+for (const kind of ['stroke', 'shape', 'text']) {
+  test(`cancels ${kind} moves on second touch, capture loss, Escape and blur`, async ({ page }) => {
     await seed(page, fixture(kind));
     await page.locator('#select').click();
     const original = await snapshot(page),
@@ -307,8 +306,8 @@ test('cancels moves on second touch, capture loss, Escape and blur for every obj
     await page.evaluate(async () => window.dispatchEvent(new Event('blur')));
     await pointer(page, 'pointerup', 5, 130, y + 20);
     expect(await snapshot(page)).toEqual(original);
-  }
-});
+  });
+}
 
 test('supports V, keyboard movement, shape resizing, blank deselection and stylus palm rejection', async ({
   page,

@@ -120,10 +120,11 @@ for (const kind of [
   });
 }
 
-test('constrains reverse drags to squares/circles and arrows to 45-degree angles', async ({
-  page,
-}) => {
-  for (const kind of ['rectangle', 'ellipse', 'arrow']) {
+// One test per kind, as above.
+for (const kind of ['rectangle', 'ellipse', 'arrow']) {
+  test(`constrains a reverse ${kind} drag (squares/circles, arrows to 45 degrees)`, async ({
+    page,
+  }) => {
     await seed(page, []);
     await choose(page, kind);
     await drag(page, { x: 220, y: 200 }, { x: 100, y: 160 }, ['Shift']);
@@ -137,13 +138,14 @@ test('constrains reverse drags to squares/circles and arrows to 45-degree angles
       expect(object.start).toEqual({ x: 100, y: 80 });
       expect(object.end).toEqual({ x: 220, y: 200 });
     }
-  }
-});
+  });
+}
 
-test('moves small shapes with touch without mistaking the body for a resize handle', async ({
-  page,
-}) => {
-  for (const kind of ['rectangle', 'ellipse', 'line', 'arrow']) {
+// One test per kind: each reloads the page, which a slow runner cannot fit four times in one timeout.
+for (const kind of ['rectangle', 'ellipse', 'line', 'arrow']) {
+  test(`moves a small ${kind} with touch without mistaking the body for a resize handle`, async ({
+    page,
+  }) => {
     const box = kind === 'rectangle' || kind === 'ellipse';
     const object = shape({ kind, end: { x: 80, y: box ? 100 : 80 }, size: 2 });
     await seed(page, [{ type: 'shape-set', object }]);
@@ -157,8 +159,8 @@ test('moves small shapes with touch without mistaking the body for a resize hand
     await expect.poll(async () => (await shapes(page))[0].start).toEqual({ x: 80, y: 100 });
     expect((await shapes(page))[0].end).toEqual({ x: 100, y: object.end.y + 20 });
     expect((await snapshot(page)).commands).toHaveLength(2);
-  }
-});
+  });
+}
 
 test('draws overlapping and nested shapes, then taps to select and move an existing shape', async ({
   page,
