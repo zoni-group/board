@@ -40,8 +40,7 @@ import {
 } from './clipboard.ts';
 import type { ClipItem } from './clipboard.ts';
 import { IMAGE_TYPES } from './model.ts';
-import { drawContent, contentBounds } from './content.ts';
-import { renderInk } from './ink.ts';
+import { contentBounds } from './content.ts';
 import { createBoardNavigation } from './navigation.ts';
 import { observeScreenLayout } from './screen-layout.ts';
 import { createTypePicker, isKind } from './type-picker.ts';
@@ -51,10 +50,15 @@ import {
   applyStrokeStyle,
   createBoardScene,
   createDrawingCanvas,
+  renderScene,
   drawStroke,
   drawStrokeSegment,
 } from './scene-renderer.ts';
 import type { BoardScene } from './scene-renderer.ts';
+import { canReorder, reorderCommands, stackBounds, stampZ } from './stacking.ts';
+import type { OrderAction } from './stacking.ts';
+import { createOrderMenu } from './order-menu.ts';
+import type { StackObject } from './stacking.ts';
 import {
   applyViewport,
   fitViewport,
@@ -430,6 +434,7 @@ for (const [id, icon] of [
   let pageIndex = 0;
   const assets = createAssetCache(redrawCanvas);
   const fillPalette = createFillPalette({ dark: isDarkMode });
+  const orderMenu = createOrderMenu();
   const selection = createSelection({
     fillPalette,
     canvas,
@@ -477,6 +482,14 @@ for (const [id, icon] of [
     },
     status: setStatus,
     duplicate: duplicateSelection,
+    order(button, refs) {
+      orderMenu.toggle(
+        button,
+        (action) => canReorder(getScene(), refs, action, (o) => stackBounds(textContext, o)),
+        (action) => reorderSelection(action, refs)
+      );
+    },
+    closeOrder: () => orderMenu.close(),
   });
   const shapeTool = createShapeTool({
     canvas,
@@ -499,6 +512,7 @@ for (const [id, icon] of [
       boardBackground.pattern === 'grid' || boardBackground.pattern === 'dotted'
         ? SPACING[boardBackground.spacing]
         : null,
+    redraw: redrawCanvas,
   });
   const laser = createLaser({
     layer: laserLayer,
@@ -566,6 +580,7 @@ for (const [id, icon] of [
     },
     getHistory: () => [...commandHistory, ...redoHistory],
     persist: queueBoardPersistence,
+    redraw: redrawCanvas,
     commit(command) {
       pushHistoryCommand(command);
       redrawCanvas();
@@ -639,6 +654,9 @@ for (const [id, icon] of [
     viewport = next;
     syncViewportControls();
     queueViewportPersistence();
+    scheduleRedraw();
+  }
+  function scheduleRedraw() {
     if (redrawFrame === null)
       redrawFrame = window.requestAnimationFrame(() => {
         redrawFrame = null;
@@ -970,6 +988,26 @@ for (const [id, icon] of [
     selection.selectAll(refs);
     return refs.length;
   }
+  const ORDER_STATUS: Record<OrderAction, string> = {
+    front: 'broughtToFront',
+    forward: 'broughtForward',
+    backward: 'sentBackward',
+    back: 'sentToBack',
+  };
+  /** Moves the selected objects in the stack, as one undo step; they stay selected. */
+  function reorderSelection(action: OrderAction, refs = selection.refs()) {
+    if (!canCopy() || !refs.length) return;
+    selection.flushStyle();
+    const commands = reorderCommands(getScene(), refs, action, (o) => stackBounds(textContext, o));
+    if (!commands?.length) {
+      setStatus(t(action === 'front' || action === 'forward' ? 'alreadyInFront' : 'alreadyAtBack'));
+      return;
+    }
+    pushHistoryCommand(commands.length > 1 ? { type: 'batch', commands } : commands[0]);
+    redrawCanvas();
+    void queueBoardPersistence();
+    setStatus(t(ORDER_STATUS[action]));
+  }
   function duplicateSelection() {
     if (!canCopy()) return;
     const snapshot = selection.snapshot();
@@ -1242,7 +1280,8 @@ for (const [id, icon] of [
 
   function pushHistoryCommand(command: BoardCommand, { clearRedo = true } = {}) {
     if (!editable()) return;
-    const nextCommand = cloneCommand(command);
+    // New objects go on top of the stack; edits keep each object's place.
+    const nextCommand = cloneCommand(stampZ(getScene(), command));
     commandHistory.push(nextCommand);
     if (clearRedo) dropRedo();
     syncHistoryButtons();
@@ -1311,31 +1350,52 @@ for (const [id, icon] of [
     historyCanvas.width = canvas.width;
     historyCanvas.height = canvas.height;
   }
+  /** How an object shows now: moved by a selection drag, or left out while erased or edited. */
+  function displayObject(object: StackObject): StackObject | null {
+    switch (object.kind) {
+      case 'stroke':
+        return { kind: 'stroke', value: selection.displayStroke(object.value) };
+      case 'shape':
+        return shapeTool.hides(object.value.id)
+          ? null
+          : { kind: 'shape', value: selection.displayShape(object.value) };
+      case 'text':
+        return textTool.hides(object.value.id)
+          ? null
+          : { kind: 'text', value: selection.displayText(object.value) };
+      default:
+        return { kind: object.kind, value: selection.displayContent(object.value) } as StackObject;
+    }
+  }
+  /** Paints the paper and every object, in stack order, onto the off-screen surface. */
+  function paintSceneSurface() {
+    historyCtx.save();
+    historyCtx.setTransform(1, 0, 0, 1, 0, 0);
+    historyCtx.globalCompositeOperation = 'source-over';
+    historyCtx.globalAlpha = 1;
+    historyCtx.clearRect(0, 0, historyCanvas.width, historyCanvas.height);
+    historyCtx.fillStyle = renderBackground;
+    historyCtx.fillRect(0, 0, historyCanvas.width, historyCanvas.height);
+    if (viewport) {
+      applyViewport(historyCtx, viewport, boardSize(), canvasDpr);
+      paintBackgroundPattern(historyCtx, boardBackground, viewport, boardSize(), renderBackground);
+    }
+    historyCtx.restore();
+    if (!viewport) return;
+    renderScene(historyCtx, getScene(), viewport, boardSize(), canvasDpr, {
+      ink: renderedInk,
+      media: { image: assets.image, background: renderBackground, ink: renderedInk },
+      display: displayObject,
+      eraser: currentStroke?.tool === 'eraser' ? currentStroke : null,
+    });
+  }
+  /** Shows the painted surface; the pen stroke being written is drawn on top of it. */
   function copyHistorySurfaceToVisible() {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = renderBackground;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.save();
-    if (viewport) {
-      applyViewport(ctx, viewport, boardSize(), canvasDpr);
-      paintBackgroundPattern(ctx, boardBackground, viewport, boardSize(), renderBackground);
-    }
-    if (viewport)
-      for (const object of getScene().content) {
-        const shown = selection.displayContent(object);
-        if (
-          boundsIntersect(contentBounds(textContext, shown), visibleBounds(viewport, boardSize()))
-        )
-          drawContent(ctx, shown, {
-            image: assets.image,
-            background: renderBackground,
-            ink: renderedInk,
-          });
-      }
-    ctx.restore();
     ctx.drawImage(historyCanvas, 0, 0);
     ctx.restore();
   }
@@ -1359,19 +1419,10 @@ for (const [id, icon] of [
       inkCache.clear();
     }
     applyViewport(ctx, viewport, boardSize(), canvasDpr);
-    renderInk(
-      historyCtx,
-      getScene().strokes.map(selection.displayStroke),
-      viewport,
-      boardSize(),
-      canvasDpr,
-      renderedInk
-    );
-    if (currentStroke?.tool === 'eraser') drawStroke(historyCtx, currentStroke, renderedInk);
+    paintSceneSurface();
     copyHistorySurfaceToVisible();
     if (currentStroke?.tool === 'pen') drawStroke(ctx, currentStroke, renderedInk);
-    shapeTool.paint();
-    textTool.paint();
+    shapeTool.paintLayer();
     selection.paint();
     laser.paint();
   }
@@ -1510,8 +1561,10 @@ for (const [id, icon] of [
     const changed =
       rect.width !== canvasCssWidth || rect.height !== canvasCssHeight || dpr !== canvasDpr;
     if (!changed) {
+      // Same surface: only the overlays move, so a stroke being written stays as drawn.
       textTool.reflow();
-      shapeTool.paint();
+      shapeTool.paintLayer();
+      selection.paint();
       return;
     }
     navigation.cancel();
@@ -1605,8 +1658,7 @@ for (const [id, icon] of [
     if (currentStroke.tool === 'eraser') {
       currentStroke.erasedTextIds = textTool.erase(last, last, currentStroke.size / 2);
       currentStroke.erasedShapeIds = shapeTool.erase(last, last, currentStroke.size / 2);
-      drawStroke(historyCtx, currentStroke, renderedInk);
-      copyHistorySurfaceToVisible();
+      redrawCanvas();
       return;
     }
     if (currentStroke.pen === 'highlighter') {
@@ -1662,8 +1714,8 @@ for (const [id, icon] of [
           ...shapeTool.erase(last, p, currentStroke.size / 2),
         ]),
       ];
-      drawStroke(historyCtx, currentStroke, renderedInk);
-      copyHistorySurfaceToVisible();
+      // The eraser path masks the ink it crosses; repaint once per frame.
+      scheduleRedraw();
       last = p;
       return;
     }
@@ -2240,6 +2292,18 @@ for (const [id, icon] of [
     if (key === 'y') {
       event.preventDefault();
       redo();
+      return;
+    }
+    // Ctrl/⌘+] and [ step forward and back; with Shift, to the front and back. By key position,
+    // so they work on keyboards where the brackets need another modifier.
+    if (
+      (event.code === 'BracketRight' || event.code === 'BracketLeft') &&
+      !event.altKey &&
+      selection.count()
+    ) {
+      event.preventDefault();
+      const up = event.code === 'BracketRight';
+      reorderSelection(event.shiftKey ? (up ? 'front' : 'back') : up ? 'forward' : 'backward');
       return;
     }
     if (event.altKey || event.shiftKey) return;

@@ -296,6 +296,19 @@ export const IconAddPage = menuIcon(
 export const IconDuplicate = menuIcon(
   '<rect x="8.5" y="8.5" width="11" height="12" rx="2"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v8.5a2 2 0 0 0 2 2h2"/>'
 );
+// Stacking order: a raised or lowered square over a stack, with an arrow.
+export const IconBringToFront = menuIcon(
+  '<rect x="8" y="3.5" width="9" height="9" rx="1.5"/><path d="M5 15.5h14M5 19.5h14"/>'
+);
+export const IconBringForward = menuIcon(
+  '<path d="M12 16V5M7.5 9.5 12 5l4.5 4.5"/><path d="M5 19.5h14"/>'
+);
+export const IconSendBackward = menuIcon(
+  '<path d="M12 4.5v11M7.5 11 12 15.5l4.5-4.5"/><path d="M5 19.5h14"/>'
+);
+export const IconSendToBack = menuIcon(
+  '<path d="M5 4.5h14M5 8.5h14"/><rect x="8" y="11.5" width="9" height="9" rx="1.5"/>'
+);
 export const IconMoveEarlier = menuIcon('<path d="M19 12H5M10.5 6.5 5 12l5.5 5.5"/>');
 export const IconMoveLater = menuIcon('<path d="M5 12h14M13.5 6.5 19 12l-5.5 5.5"/>');
 export const IconChevronLeft = menuIcon('<path d="m14.5 6-6 6 6 6"/>');

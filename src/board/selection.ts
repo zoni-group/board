@@ -17,7 +17,7 @@ import type {
   ContentObject,
 } from './model.ts';
 import { contentBounds, contentCorners, resizeMedia } from './content.ts';
-import { hitInk, inkBounds, inkPaintOrder } from './ink.ts';
+import { hitInk, inkBounds } from './ink.ts';
 import type { InkObject } from './ink.ts';
 import type { BoardScene } from './scene-renderer.ts';
 import { cachedTextLayout, containsPoint } from './text-layout.ts';
@@ -44,15 +44,11 @@ import { boxPolygon, objectsInRegion } from './marquee.ts';
 import type { BoardBounds, BoardViewport } from './viewport.ts';
 import { panelArea } from './screen-layout.ts';
 import { strokeFromInk } from './clipboard.ts';
+import { stackOrder } from './stacking.ts';
+import type { StackObject } from './stacking.ts';
 import type { ClipItem } from './clipboard.ts';
 
-type SelectedObject =
-  | { kind: 'stroke'; value: InkObject }
-  | { kind: 'shape'; value: ShapeObject }
-  | { kind: 'text'; value: TextObject }
-  | {
-      [K in ContentObject['kind']]: { kind: K; value: Extract<ContentObject, { kind: K }> };
-    }[ContentObject['kind']];
+type SelectedObject = StackObject;
 interface SelectionOptions {
   canvas: HTMLCanvasElement;
   textContext: CanvasRenderingContext2D;
@@ -72,6 +68,10 @@ interface SelectionOptions {
   fillPalette: FillPalette;
   /** The Duplicate button: copy the selection next to itself. */
   duplicate(): void;
+  /** The Order button: opens the stacking menu for these objects. */
+  order(button: HTMLElement, refs: BoardObjectRef[]): void;
+  /** Closes the stacking menu when the selection bar goes away. */
+  closeOrder(): void;
 }
 type Drag = { id: number; start: Point; latest: Point; original: SelectedObject; handle: number };
 type GroupDrag = { id: number; start: Point; latest: Point; originals: SelectedObject[] };
@@ -121,9 +121,13 @@ export function createSelection(options: SelectionOptions) {
     edit = document.createElement('button'),
     fill = document.createElement('button'),
     duplicate = document.createElement('button'),
+    order = document.createElement('button'),
     remove = document.createElement('button'),
     done = document.createElement('button');
-  for (const button of [move, edit, fill, duplicate, remove, done]) button.type = 'button';
+  for (const button of [move, edit, fill, duplicate, order, remove, done]) button.type = 'button';
+  order.className = 'selection-order';
+  order.setAttribute('aria-haspopup', 'menu');
+  order.setAttribute('aria-expanded', 'false');
   move.className = 'selection-move';
   duplicate.className = 'selection-duplicate';
   // Fill for a selected closed shape: the chip previews it and opens the fill palette.
@@ -132,7 +136,7 @@ export function createSelection(options: SelectionOptions) {
   fill.setAttribute('aria-haspopup', 'dialog');
   fill.setAttribute('aria-expanded', 'false');
   fill.innerHTML = '<span aria-hidden="true"></span><span></span>';
-  actions.append(move, edit, fill, duplicate, remove, done);
+  actions.append(move, edit, fill, duplicate, order, remove, done);
   document.body.append(actions);
   function lookup(target: BoardObjectRef | null = ref): SelectedObject | null {
     if (!target) return null;
@@ -370,6 +374,7 @@ export function createSelection(options: SelectionOptions) {
     // The fill palette belongs to the shape it was opened for.
     if (fill.getAttribute('aria-expanded') === 'true' && (fill.hidden || actions.hidden))
       options.fillPalette.close();
+    if (order.getAttribute('aria-expanded') === 'true' && actions.hidden) options.closeOrder();
   }
   function paintSelection() {
     syncGroup();
@@ -454,6 +459,7 @@ export function createSelection(options: SelectionOptions) {
     move.textContent = t('moveText');
     edit.textContent = t('editText');
     duplicate.textContent = t('duplicate');
+    order.textContent = t('order');
     remove.textContent = t('deleteText');
     fill.lastElementChild!.textContent = t('fill');
     done.textContent = t('doneText');
@@ -581,17 +587,22 @@ export function createSelection(options: SelectionOptions) {
     const p = point(event),
       zoom = options.view().zoom,
       padding = event.pointerType === 'touch' ? 10 : 6;
-    const scene = options.scene();
-    for (const value of [...scene.text].reverse())
-      if (containsPoint(cachedTextLayout(options.textContext, value).bounds, p, padding / zoom))
-        return { kind: 'text', id: value.id };
-    for (const value of [...scene.shapes].reverse())
-      if (hitShape(value, p, padding / zoom)) return { kind: 'shape', id: value.id };
-    for (const value of inkPaintOrder(scene.strokes).reverse())
-      if (hitInk(value, p, zoom, padding)) return { kind: 'stroke', id: value.id };
-    for (const value of [...scene.content].reverse())
-      if (containsPoint(contentBounds(options.textContext, value), p, padding / zoom))
-        return { kind: value.kind, id: value.id };
+    // Top of the stack first: a tap picks what shows on top.
+    for (const object of stackOrder(options.scene()).reverse()) {
+      const hit =
+        object.kind === 'text'
+          ? containsPoint(
+              cachedTextLayout(options.textContext, object.value).bounds,
+              p,
+              padding / zoom
+            )
+          : object.kind === 'shape'
+            ? hitShape(object.value, p, padding / zoom)
+            : object.kind === 'stroke'
+              ? hitInk(object.value, p, zoom, padding)
+              : containsPoint(contentBounds(options.textContext, object.value), p, padding / zoom);
+      if (hit) return objectRef(object);
+    }
     return null;
   }
   function begin(event: PointerEvent, target: BoardObjectRef, handle = -1) {
@@ -721,6 +732,14 @@ export function createSelection(options: SelectionOptions) {
   edit.addEventListener('click', editSelected);
   remove.addEventListener('click', removeSelected);
   duplicate.addEventListener('click', () => options.duplicate());
+  order.addEventListener('click', () => {
+    flushStyle();
+    const refs = selectedRefs();
+    if (refs.length) options.order(order, refs);
+  });
+  function selectedRefs(): BoardObjectRef[] {
+    return group ? groupObjects().map(objectRef) : lookup() ? [ref!] : [];
+  }
   fill.addEventListener('click', () => {
     flushStyle();
     const original = lookup();
@@ -770,17 +789,9 @@ export function createSelection(options: SelectionOptions) {
     /** Copies of the selected objects, in paint order, and the area they cover. */
     snapshot(): { items: ClipItem[]; bounds: BoardBounds } | null {
       flushStyle();
-      const scene = options.scene();
-      // Paint order within each kind, so overlapping copies stack like the originals.
-      const order = (object: SelectedObject) =>
-        (object.kind === 'stroke'
-          ? scene.strokes
-          : object.kind === 'shape'
-            ? scene.shapes
-            : object.kind === 'text'
-              ? scene.text
-              : scene.content
-        ).findIndex((value) => value.id === object.value.id);
+      // Stack order, so overlapping copies stack like the originals.
+      const stack = stackOrder(options.scene()).map(objectKey);
+      const order = (object: SelectedObject) => stack.indexOf(objectKey(object));
       const objects = (group ? groupObjects() : [lookup()].filter((o) => o !== null)).sort(
         (a, b) => order(a) - order(b)
       );
@@ -799,6 +810,8 @@ export function createSelection(options: SelectionOptions) {
       });
       return { items, bounds: objects.map(bounds).reduce(unionBounds) };
     },
+    /** The selected objects (each member of a group). */
+    refs: selectedRefs,
     /** Deletes the selection (Cut). */
     removeSelected,
     clear,

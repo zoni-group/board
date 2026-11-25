@@ -44,7 +44,7 @@ describe('shared scene rendering', () => {
     expect(ctx.arc).toHaveBeenCalledTimes(1);
     expect([canvas.width, canvas.height]).toEqual([320, 240]);
   });
-  it('applies erasers to a separate ink surface before an opaque export background and text', () => {
+  it('erases ink on its own scratch surface, so erasing never cuts through what lies beneath', () => {
     const ctx = document.createElement('canvas').getContext('2d');
     const object = textObject();
     object.paragraphs[0].runs[0].highlightRaw = '#fff176';
@@ -55,13 +55,16 @@ describe('shared scene rendering', () => {
     const { canvas } = createDrawingCanvas(scene, size, '#ffffff', (ink) => ink);
     const out = canvas.getContext('2d');
     expect(out.drawImage).toHaveBeenCalledTimes(1);
-    const ink = out.drawImage.mock.calls[0][0].getContext('2d');
-    const isolated = ink.drawImage.mock.calls[0][0].getContext('2d');
+    const isolated = out.drawImage.mock.calls[0][0].getContext('2d');
     expect(isolated.arc).toHaveBeenCalledTimes(2);
     expect(isolated.globalCompositeOperation).toBe('destination-out');
     expect(out.fillText).toHaveBeenCalledWith('Hello', expect.any(Number), expect.any(Number));
     expect(out.fillRect.mock.invocationCallOrder[0]).toBeLessThan(
       out.drawImage.mock.invocationCallOrder[0]
+    );
+    // Legacy text stays above legacy ink.
+    expect(out.drawImage.mock.invocationCallOrder[0]).toBeLessThan(
+      out.fillText.mock.invocationCallOrder[0]
     );
   });
   it("paints the board's page pattern into PNG exports, under the drawing", () => {
@@ -77,7 +80,7 @@ describe('shared scene rendering', () => {
     const out = canvas.getContext('2d');
     expect(out.stroke).toHaveBeenCalledTimes(1);
     expect(out.stroke.mock.invocationCallOrder[0]).toBeLessThan(
-      out.drawImage.mock.invocationCallOrder[0]
+      out.arc.mock.invocationCallOrder[0]
     );
   });
 });

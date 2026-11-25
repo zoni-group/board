@@ -232,11 +232,12 @@ test('two-finger navigation cancels ink and text erasing and never creates a tex
   expect(await objects(page)).toEqual([object]);
   expect((await snapshot(page)).commands).toHaveLength(1);
   expect(
-    await page.locator('#textLayer').evaluate((canvas) =>
+    await page.locator('#pad').evaluate((canvas) =>
+      // Text is drawn on the board canvas with everything else: look for its dark glyphs.
       canvas
         .getContext('2d')
         .getImageData(0, 0, canvas.width, canvas.height)
-        .data.some((value, index) => index % 4 === 3 && value > 0)
+        .data.some((value, index) => index % 4 === 0 && value < 100)
     )
   ).toBe(true);
 });
@@ -386,12 +387,13 @@ test('recovers an offscreen draft into view without changing its board coordinat
   await page.locator('#pad').click({ position: { x: 100, y: 150 } });
   let input = page.locator('notectl-editor').getByRole('textbox');
   await input.pressSequentially('Recovered');
+  // The editor may save an empty draft before typing starts, so read it leniently.
   await expect
     .poll(() =>
       page.evaluate(
         async () =>
           (await (await import('/test/helpers/board-browser.js')).activeBoard()).draft?.object
-            .paragraphs[0].runs[0].text
+            .paragraphs[0].runs[0]?.text
       )
     )
     .toBe('Recovered');

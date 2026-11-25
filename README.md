@@ -124,8 +124,9 @@ the pen with its last type. Tapping the active Pen again opens **Pen**, **Highli
 choice is remembered on this device.
 
 - **Pen:** regular ink, unchanged.
-- **Highlighter:** a see-through marker for text, images, tables, and worksheets. Highlights
-  always render under pen ink and text, so marked content stays readable. They keep their bright
+- **Highlighter:** a see-through marker for text, images, tables, and worksheets. Like anything
+  new, a highlight goes on top of the stack, and it stays see-through so marked content stays
+  readable (see [Stacking order](#stacking-order)). Highlights keep their bright
   color instead of the pen's contrast adjustment. Pen and Highlighter each remember their own
   color and size (the highlighter starts amber at 18). Highlights select, move, restyle, erase,
   undo, autosave, and export like any other stroke. On a stroke, only `pen: "highlighter"` is
@@ -140,8 +141,7 @@ choice is remembered on this device.
 
 Choose **Select** (the pointer beside Hand), or press **V** with the board focused. Click or tap
 one pen stroke, text block, shape, image, table, or video card to select it. Drag the object to move it; clicking empty
-space deselects. Text is picked above shapes, and shapes above ink, following the drawing's
-visible layer order. Images, tables, and video cards sit beneath ink in their creation order.
+space deselects. A tap picks the object that shows on top (see [Stacking order](#stacking-order)).
 Each pen-down/up gesture is one object; freehand drawings with several
 strokes are edited one stroke at a time.
 
@@ -170,6 +170,27 @@ same selection controller. Two-finger navigation cancels unfinished object movem
 movement begun with Text's Move handle. Stylus palm rejection, fixed-size controls, local saving,
 undo/redo, Fit and whole-board PNG export apply to all object edits. Selection outlines and handles
 are temporary and never saved or exported.
+
+### Stacking order
+
+Every object (pen strokes, highlights, shapes, text, images, tables and video cards) sits in one
+shared stack, and anything new goes on top. To change it, select an object or a group and choose
+**Order** in the selection bar:
+
+- **Bring to front** / **Send to back** put the selection above or below everything else.
+- **Bring forward** / **Send backward** move it past the next object it overlaps, so each step
+  shows. Items that would change nothing are disabled.
+- Shortcuts: Ctrl/⌘+] and Ctrl/⌘+[ step forward and backward; add Shift for front and back. They
+  go by key position, so they also work on keyboards where the brackets need another key.
+- A group keeps its own order inside. Each change is one undo step and keeps the selection.
+
+Taps, Box and Lasso, the screen, PNG and PDF exports all follow the same stack. Each object
+stores its place in an optional `z` number (on pen strokes, shapes, text and content; a reorder
+of a stroke is a `stroke-edit` with `z`). Objects saved before stacking have no `z` and keep the
+old fixed layers, from the bottom up: images, tables and videos, highlights, ink, shapes, text,
+all below newer objects, so existing boards look the same. The first reorder on such a page
+numbers all its objects once, in the same undo step. Older app versions ignore `z` and show the
+old layers.
 
 ### Duplicate, copy and paste
 

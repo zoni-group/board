@@ -75,6 +75,7 @@ export function resolveInk(commands: readonly BoardCommand[]): InkObject[] {
             ...object.stroke,
             ...(command.size !== undefined ? { size: command.size } : {}),
             ...(command.inkRaw !== undefined ? { inkRaw: command.inkRaw } : {}),
+            ...(command.z !== undefined ? { z: command.z } : {}),
           },
         });
         break;
@@ -134,52 +135,67 @@ export function renderInk(
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   applyViewport(ctx, view, size, dpr);
   const visible = visibleBounds(view, size);
-  for (const object of inkPaintOrder(objects)) {
-    const bounds = inkBounds(object);
-    if (!boundsIntersect(bounds, visible)) continue;
-    if (!object.erasures.length) {
-      drawInkObject(ctx, object, ink);
-      continue;
-    }
-    let scratch = scratchSurfaces.get(ctx);
-    if (!scratch) {
-      scratch = document.createElement('canvas');
-      scratchSurfaces.set(ctx, scratch);
-    }
-    const anchor = worldToScreen(bounds, view, size);
-    const left = Math.max(0, Math.floor(anchor.x * dpr) - 2),
-      top = Math.max(0, Math.floor(anchor.y * dpr) - 2);
-    const right = Math.min(
-      ctx.canvas.width,
-      Math.ceil((anchor.x + bounds.width * view.zoom) * dpr) + 2
-    );
-    const bottom = Math.min(
-      ctx.canvas.height,
-      Math.ceil((anchor.y + bounds.height * view.zoom) * dpr) + 2
-    );
-    if (right <= left || bottom <= top) continue;
-    const width = right - left,
-      height = bottom - top;
-    if (scratch.width !== width) scratch.width = width;
-    if (scratch.height !== height) scratch.height = height;
-    const target = scratch.getContext('2d');
-    if (!target) throw new Error('Ink mask context is unavailable.');
-    target.setTransform(1, 0, 0, 1, 0, 0);
-    target.clearRect(0, 0, width, height);
-    target.setTransform(
-      dpr * view.zoom,
-      0,
-      0,
-      dpr * view.zoom,
-      dpr * (size.width / 2 - view.center.x * view.zoom) - left,
-      dpr * (size.height / 2 - view.center.y * view.zoom) - top
-    );
-    drawInkObject(target, object, ink);
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(scratch, left, top);
-    ctx.restore();
+  for (const object of inkPaintOrder(objects))
+    if (boundsIntersect(inkBounds(object), visible)) drawInk(ctx, object, view, size, dpr, ink);
+}
+
+/**
+ * Draws one ink object onto a canvas already set to `view`. A partly erased stroke is drawn on
+ * a scratch canvas first, so its erasing never cuts through what lies underneath.
+ */
+export function drawInk(
+  ctx: CanvasRenderingContext2D,
+  object: InkObject,
+  view: BoardViewport,
+  size: BoardSize,
+  dpr: number,
+  ink: InkColor
+): void {
+  if (!object.erasures.length) {
+    drawInkObject(ctx, object, ink);
+    return;
   }
+  const bounds = inkBounds(object);
+  let scratch = scratchSurfaces.get(ctx);
+  if (!scratch) {
+    scratch = document.createElement('canvas');
+    scratchSurfaces.set(ctx, scratch);
+  }
+  const anchor = worldToScreen(bounds, view, size);
+  const left = Math.max(0, Math.floor(anchor.x * dpr) - 2),
+    top = Math.max(0, Math.floor(anchor.y * dpr) - 2);
+  const right = Math.min(
+    ctx.canvas.width,
+    Math.ceil((anchor.x + bounds.width * view.zoom) * dpr) + 2
+  );
+  const bottom = Math.min(
+    ctx.canvas.height,
+    Math.ceil((anchor.y + bounds.height * view.zoom) * dpr) + 2
+  );
+  if (right <= left || bottom <= top) return;
+  const width = right - left,
+    height = bottom - top;
+  if (scratch.width !== width) scratch.width = width;
+  if (scratch.height !== height) scratch.height = height;
+  const target = scratch.getContext('2d');
+  if (!target) throw new Error('Ink mask context is unavailable.');
+  target.setTransform(1, 0, 0, 1, 0, 0);
+  target.clearRect(0, 0, width, height);
+  target.setTransform(
+    dpr * view.zoom,
+    0,
+    0,
+    dpr * view.zoom,
+    dpr * (size.width / 2 - view.center.x * view.zoom) - left,
+    dpr * (size.height / 2 - view.center.y * view.zoom) - top
+  );
+  drawInkObject(target, object, ink);
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  ctx.drawImage(scratch, left, top);
+  ctx.restore();
 }
 
 let hitCanvas: HTMLCanvasElement | undefined;

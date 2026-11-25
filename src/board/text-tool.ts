@@ -2,20 +2,8 @@ import { t, getLang } from '../i18n.ts';
 import { isDarkTheme, onThemeChange } from './theme.ts';
 import { cloneTextObject, isEmptyText } from './model.ts';
 import type { BoardCommand, Point, TextObject } from './model.ts';
-import {
-  cachedTextLayout,
-  containsPoint,
-  drawText,
-  intersectsText,
-  layoutText,
-} from './text-layout.ts';
-import {
-  applyViewport,
-  boundsIntersect,
-  screenToWorld,
-  visibleBounds,
-  worldToScreen,
-} from './viewport.ts';
+import { cachedTextLayout, containsPoint, intersectsText, layoutText } from './text-layout.ts';
+import { boundsIntersect, screenToWorld, visibleBounds, worldToScreen } from './viewport.ts';
 import type { BoardViewport } from './viewport.ts';
 import { panelArea } from './screen-layout.ts';
 import { recoverTextDraft } from './text-draft.ts';
@@ -39,6 +27,8 @@ interface TextToolOptions {
   historyChanged(): void;
   ink(): string;
   status(message: string): void;
+  /** Repaints the board, which draws text with everything else in stack order. */
+  redraw(): void;
 }
 export interface TextDraftStore {
   load(): TextDraft | null;
@@ -102,27 +92,28 @@ export function createTextTool(options: TextToolOptions) {
       rect
     );
   }
+  /** Text is drawn by the board in stack order; this layer only needs to stay clear. */
   function paint() {
     context.save();
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.clearRect(0, 0, layer.width, layer.height);
     context.restore();
-    const boardView = options.getViewport();
-    applyViewport(context, boardView, size(), Math.max(1, window.devicePixelRatio || 1));
-    const visible = visibleBounds(boardView, size());
-    for (const object of options.getObjects()) {
-      if (erased.has(object.id) || (draft?.object.id === object.id && (session || loading)))
-        continue;
-      const displayed = options.selection.displayText(object);
-      const layout = cachedTextLayout(context, displayed);
-      if (boundsIntersect(layout.bounds, visible)) drawText(context, displayed, layout);
-    }
-    options.selection.paint();
+    options.redraw();
+  }
+  /** Text the board should leave out: erased under the eraser, or open in the editor. */
+  function hides(id: string) {
+    return erased.has(id) || (draft?.object.id === id && Boolean(session || loading));
+  }
+  /** The edited text, keeping the stack position of the text it started from. */
+  function readEditor(session: TextEditorSession, current: TextDraft): TextObject {
+    const object = session.read();
+    const z = current.original?.z ?? current.object.z;
+    return z === undefined ? object : { ...object, z };
   }
   function flushDraft() {
     window.clearTimeout(timer);
     if (!session || !draft) return;
-    draft.object = session.read();
+    draft.object = readEditor(session, draft);
     if (JSON.stringify(draft.object) === JSON.stringify(draft.original)) return;
     drafts.save(draft);
   }
@@ -182,7 +173,7 @@ export function createTextTool(options: TextToolOptions) {
     flushDraft();
     const current = draft;
     const store = drafts;
-    const object = session.read();
+    const object = readEditor(session, current);
     draft = null;
     closeEditor();
     if (isEmptyText(object) && !current.original) {
@@ -246,7 +237,8 @@ export function createTextTool(options: TextToolOptions) {
     if (
       original &&
       previousDraft?.committing &&
-      JSON.stringify(previousDraft.object) === JSON.stringify(original)
+      // A draft saved before its first commit has no stack position yet.
+      JSON.stringify({ ...previousDraft.object, z: original.z }) === JSON.stringify(original)
     )
       token = previousDraft.token;
     draft = {
@@ -373,10 +365,8 @@ export function createTextTool(options: TextToolOptions) {
     if (document.hidden) flushDraft();
   });
   document.addEventListener('i18n:change', labels);
-  window.addEventListener('resize', () => {
-    positionEditor();
-    paint();
-  });
+  // The board repaints itself on resize; only the editor needs placing.
+  window.addEventListener('resize', positionEditor);
   window.addEventListener(
     'scroll',
     () => {
@@ -391,8 +381,8 @@ export function createTextTool(options: TextToolOptions) {
 
   return {
     paint,
+    /** Re-places the editor; the board repaints the text itself. */
     reflow() {
-      paint();
       positionEditor();
     },
     finish,
@@ -443,14 +433,14 @@ export function createTextTool(options: TextToolOptions) {
           intersectsText(cachedTextLayout(context, object).bounds, from, to, radius)
         )
         .map((object) => object.id);
+      // The board repaints the eraser preview.
       ids.forEach((id) => erased.add(id));
-      paint();
       return ids;
     },
     clearErasePreview() {
       erased.clear();
-      paint();
     },
+    hides,
     recover() {
       drafts = options.drafts();
       const previous = drafts.load();

@@ -86,6 +86,7 @@ test('Duplicate places a selected copy next to the original; one Undo removes it
     'Move',
     'Fill',
     'Duplicate',
+    'Order',
     'Delete',
     'Done',
   ]);
