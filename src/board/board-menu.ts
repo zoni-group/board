@@ -58,6 +58,9 @@ export function boardFileName(name: string, extension: string): string {
 }
 export function createBoardMenu(options: Options) {
   const { button, menu } = options;
+  // A body-level popup, like the selection bars: inside the fixed .app its z-index could not
+  // lift it over a selection bar, which then covered its items.
+  document.body.append(menu);
   let panel: HTMLElement | null = null,
     beforeDismiss: (() => Promise<void>) | null = null,
     returnFocus: HTMLElement | null = null,

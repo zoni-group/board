@@ -387,12 +387,13 @@ test('recovers an offscreen draft into view without changing its board coordinat
   await page.locator('#pad').click({ position: { x: 100, y: 150 } });
   let input = page.locator('notectl-editor').getByRole('textbox');
   await input.pressSequentially('Recovered');
+  // The editor may save an empty draft before typing starts, so read it leniently.
   await expect
     .poll(() =>
       page.evaluate(
         async () =>
           (await (await import('/test/helpers/board-browser.js')).activeBoard()).draft?.object
-            .paragraphs[0].runs[0].text
+            .paragraphs[0].runs[0]?.text
       )
     )
     .toBe('Recovered');
