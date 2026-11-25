@@ -6,7 +6,7 @@ import type { BoardCommand, Point, ShapeFill, ShapeKind, ShapeObject } from './m
 import { loadText, saveText } from '../shared/storage.ts';
 import { fillName, renderFillChip } from './fill-palette.ts';
 import type { FillPalette } from './fill-palette.ts';
-import { applyViewport, boundsIntersect, screenToWorld, visibleBounds } from './viewport.ts';
+import { applyViewport, screenToWorld } from './viewport.ts';
 import type { BoardViewport } from './viewport.ts';
 import type { SelectionController } from './selection.ts';
 import { constrainPopup } from './screen-layout.ts';
@@ -19,7 +19,6 @@ import {
   intersectsShape,
   isBox,
   isFillable,
-  shapeBounds,
   hitShapeHandle,
 } from './shapes.ts';
 
@@ -37,6 +36,8 @@ interface ShapeToolOptions {
   fillPalette: FillPalette;
   /** Grid or dot spacing of the paper, or null on blank and lined paper. */
   gridStep(): number | null;
+  /** Repaints the board, which draws shapes with everything else in stack order. */
+  redraw(): void;
 }
 const LS_SHAPE_FILL = 'zoni_board_shape_fill';
 function storedFill(): ShapeFill | null {
@@ -154,20 +155,18 @@ export function createShapeTool(options: ShapeToolOptions) {
     picker.style.top = `${anchor.bottom + 4}px`;
     constrainPopup(picker);
   }
+  /** Shapes are drawn by the board in stack order. */
   function paint() {
+    options.redraw();
+  }
+  /** This layer shows only the shape being drawn, above everything (new shapes go on top). */
+  function paintLayer() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, layer.width, layer.height);
     const view = options.getViewport(),
       rect = canvas.getBoundingClientRect();
     applyViewport(ctx, view, rect, Math.max(1, window.devicePixelRatio || 1));
-    const visible = visibleBounds(view, rect);
-    for (const object of options.getObjects()) {
-      if (erased.has(object.id)) continue;
-      const shown = options.selection.displayShape(object);
-      if (boundsIntersect(shapeBounds(shown), visible)) drawShape(ctx, shown, options.ink);
-    }
     if (drag) drawShape(ctx, drag.object, options.ink);
-    options.selection.paint();
     positionPicker();
   }
   function flushStyle() {
@@ -256,10 +255,7 @@ export function createShapeTool(options: ShapeToolOptions) {
     )
       closePicker(false);
   });
-  document.addEventListener('board:layout', () => {
-    paint();
-    positionPicker();
-  });
+  document.addEventListener('board:layout', paintLayer);
   document.addEventListener('i18n:change', () => {
     labels();
     paint();
@@ -309,14 +305,16 @@ export function createShapeTool(options: ShapeToolOptions) {
         .getObjects()
         .filter((object) => intersectsShape(object, from, to, radius))
         .map((object) => object.id);
+      // The board repaints the eraser preview.
       ids.forEach((id) => erased.add(id));
-      paint();
       return ids;
     },
     clearErasePreview() {
       erased.clear();
-      paint();
     },
+    paintLayer,
+    /** Shapes the board should leave out while the eraser is over them. */
+    hides: (id: string) => erased.has(id),
     handleKey(event: KeyboardEvent): boolean {
       if (
         !active ||

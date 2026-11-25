@@ -77,7 +77,7 @@ test('opens pen types from the active Pen button without adding toolbar buttons'
   expect(await page.locator('.toolbar button').count()).toBe(toolbarButtons);
 });
 
-test('draws see-through highlights under pen ink with their own remembered style', async ({
+test('draws see-through highlights on top of earlier ink with their own remembered style', async ({
   page,
 }) => {
   await selectPen(page);
@@ -93,11 +93,14 @@ test('draws see-through highlights under pen ink with their own remembered style
   expect(ink.pen).toBeUndefined();
   expect(highlight).toMatchObject({ tool: 'pen', pen: 'highlighter', size: 18 });
 
-  // The highlight is see-through on its own and drawn under the earlier pen stroke.
+  // The highlight is see-through. Newer objects go on top, so it tints the earlier pen stroke,
+  // which still shows dark through it.
   const [r, g, b] = await pixel(page, 220, 140);
   expect(r).toBeGreaterThan(220);
   expect(b).toBeLessThan(200);
-  expect(await pixel(page, 150, 140)).toEqual(await pixel(page, 150, 100));
+  const crossing = await pixel(page, 150, 140);
+  expect(crossing).not.toEqual(await pixel(page, 150, 100));
+  expect(crossing[0]).toBeLessThan(r - 60);
 
   await choosePen(page, 'pen');
   await expect(page.locator('#size')).toHaveValue('6');

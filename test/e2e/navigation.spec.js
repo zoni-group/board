@@ -232,11 +232,12 @@ test('two-finger navigation cancels ink and text erasing and never creates a tex
   expect(await objects(page)).toEqual([object]);
   expect((await snapshot(page)).commands).toHaveLength(1);
   expect(
-    await page.locator('#textLayer').evaluate((canvas) =>
+    await page.locator('#pad').evaluate((canvas) =>
+      // Text is drawn on the board canvas with everything else: look for its dark glyphs.
       canvas
         .getContext('2d')
         .getImageData(0, 0, canvas.width, canvas.height)
-        .data.some((value, index) => index % 4 === 3 && value > 0)
+        .data.some((value, index) => index % 4 === 0 && value < 100)
     )
   ).toBe(true);
 });

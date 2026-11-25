@@ -271,11 +271,12 @@ test('formats selected words, commits one board edit, and exports both canvas la
   // WebKit may replace filename spaces with underscores when starting the download.
   expect((await downloaded).suggestedFilename()).toMatch(/^Board[ _]1\.png$/);
   expect(
-    await page.locator('#textLayer').evaluate((canvas) =>
+    await page.locator('#pad').evaluate((canvas) =>
+      // Text is drawn on the board canvas with everything else: look for its dark glyphs.
       canvas
         .getContext('2d')
         .getImageData(0, 0, canvas.width, canvas.height)
-        .data.some((value, index) => index % 4 === 3 && value > 0)
+        .data.some((value, index) => index % 4 === 0 && value < 100)
     )
   ).toBe(true);
   expect(errors).toEqual([]);

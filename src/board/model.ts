@@ -51,6 +51,8 @@ export interface ShapeFill {
 /** Boxes use opposite corners; lines retain endpoint order (and arrow direction). */
 export interface ShapeObject {
   id: string;
+  /** Stack position: higher draws above. Absent on objects saved before stacking existed. */
+  z?: number;
   kind: ShapeKind;
   start: Point;
   end: Point;
@@ -90,10 +92,14 @@ export interface TextObject {
   id: string;
   position: Point;
   paragraphs: TextParagraph[];
+  /** Stack position, as on shapes. */
+  z?: number;
 }
 
 interface MediaBox {
   id: string;
+  /** Stack position, as on shapes. */
+  z?: number;
   position: Point;
   width: number;
   height: number;
@@ -116,6 +122,8 @@ export const MAX_TABLE_COLUMNS = 20;
 export interface TableObject {
   kind: 'table';
   id: string;
+  /** Stack position, as on shapes. */
+  z?: number;
   position: Point;
   columnWidths: number[];
   rows: { minHeight: number; cells: TextParagraph[][] }[];
@@ -166,6 +174,8 @@ export interface PenStrokeCommand extends StrokeData {
    * duplicated or pasted stroke has them, so the copy looks like the original.
    */
   erasures?: StrokeMask[];
+  /** Stack position, as on shapes. */
+  z?: number;
 }
 /** An eraser path that hides part of a pen stroke. */
 export interface StrokeMask {
@@ -184,6 +194,8 @@ export interface StrokeEditCommand {
   translate?: Point;
   size?: number;
   inkRaw?: string;
+  /** Moves the stroke in the stack. */
+  z?: number;
 }
 export interface StrokeDeleteCommand {
   type: 'stroke-delete';
@@ -234,6 +246,11 @@ export function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+/** A stack position, kept only when it is a finite number. Absent on objects saved before stacking. */
+function zOf(value: Record<string, unknown>): { z: number } | Record<string, never> {
+  return isFiniteNumber(value.z) ? { z: value.z } : {};
+}
+
 export function normalizePoint(point: unknown): Point | null {
   if (!isRecord(point) || !isFiniteNumber(point.x) || !isFiniteNumber(point.y)) return null;
   return { x: point.x, y: point.y };
@@ -271,6 +288,7 @@ export function normalizeShapeObject(value: unknown): ShapeObject | null {
       ...(shapeKind === 'axes' && normalizeStep(value.step)
         ? { step: normalizeStep(value.step)! }
         : {}),
+      ...zOf(value),
     };
   }
   if (!width && !height) return null;
@@ -283,6 +301,7 @@ export function normalizeShapeObject(value: unknown): ShapeObject | null {
     size,
     inkRaw,
     ...(step && shapeKind === 'numberLine' ? { step } : {}),
+    ...zOf(value),
   };
 }
 
@@ -339,7 +358,7 @@ export function normalizeTextObject(value: unknown): TextObject | null {
       paragraph.align === 'center' ? 'center' : paragraph.align === 'right' ? 'right' : 'left';
     paragraphs.push({ align, runs });
   }
-  return { id: value.id, position, paragraphs };
+  return { id: value.id, position, paragraphs, ...zOf(value) };
 }
 
 export function cloneTextObject(object: TextObject): TextObject {
@@ -350,6 +369,7 @@ export function cloneTextObject(object: TextObject): TextObject {
       align: p.align,
       runs: p.runs.map((run) => ({ ...run })),
     })),
+    ...(object.z !== undefined ? { z: object.z } : {}),
   };
 }
 
@@ -427,6 +447,7 @@ export function normalizeContentObject(value: unknown): ContentObject | null {
       columnWidths: [...value.columnWidths] as number[],
       rows,
       borderRaw: value.borderRaw,
+      ...zOf(value),
     };
   }
   if (
@@ -447,6 +468,7 @@ export function normalizeContentObject(value: unknown): ContentObject | null {
     width: value.width,
     height: value.height,
     title: value.title,
+    ...zOf(value),
   };
   if (value.kind === 'image')
     return typeof value.assetId === 'string' && value.assetId
@@ -500,13 +522,20 @@ export function normalizeCommand(command: unknown): BoardCommand | null {
       (typeof command.inkRaw !== 'string' || !/^#[\da-f]{6}$/i.test(command.inkRaw))
     )
       return null;
-    if (!translate && command.size === undefined && command.inkRaw === undefined) return null;
+    if (
+      !translate &&
+      command.size === undefined &&
+      command.inkRaw === undefined &&
+      !isFiniteNumber(command.z)
+    )
+      return null;
     return {
       type: 'stroke-edit',
       id: command.id,
       ...(translate ? { translate } : {}),
       ...(command.size !== undefined ? { size: command.size as number } : {}),
       ...(command.inkRaw !== undefined ? { inkRaw: command.inkRaw as string } : {}),
+      ...zOf(command),
     };
   }
   if (command.type === 'shape-set') {
@@ -556,6 +585,7 @@ export function normalizeCommand(command: unknown): BoardCommand | null {
       id,
       ...(command.pen === 'highlighter' ? { pen: 'highlighter' } : pressure ? { pressure } : {}),
       ...(erasures.length ? { erasures } : {}),
+      ...zOf(command),
     };
   }
   return {
